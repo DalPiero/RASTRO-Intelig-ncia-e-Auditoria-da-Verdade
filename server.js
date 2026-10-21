@@ -3,6 +3,7 @@ import express from 'express';
 import multer from 'multer';
 import OpenAI from 'openai';
 import pg from 'pg';
+import ffmpegPath from 'ffmpeg-static';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -162,12 +163,12 @@ function fail(res,e){
  else if(code==='ENOENT')message='FFmpeg não encontrado no servidor.';
  res.status(Number.isInteger(code)&&code>=400&&code<500?code:500).json({error:message});
 }
-function runFFmpeg(args){return new Promise((resolve,reject)=>{ const p=spawn(process.env.FFMPEG_BIN||'ffmpeg',args,{stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>{err+=d.toString().slice(-1000)});p.on('error',reject);p.on('close',code=>code===0?resolve():reject(new Error('FFmpeg: '+err.slice(-400))));});}
+function runFFmpeg(args){return new Promise((resolve,reject)=>{ const p=spawn(process.env.FFMPEG_BIN||ffmpegPath||'ffmpeg',args,{stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>{err+=d.toString().slice(-1000)});p.on('error',reject);p.on('close',code=>code===0?resolve():reject(new Error('FFmpeg: '+err.slice(-400))));});}
 function stamp(s){let t=Math.max(0,Number(s)||0);return `${String(Math.floor(t/3600)).padStart(2,'0')}:${String(Math.floor(t%3600/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`}
 app.post('/api/transcribe',protect,upload.single('media'),async(req,res)=>{
  if(!openai)return res.status(503).json({error:'Configure OPENAI_API_KEY no servidor.'});
  if(!req.file)return res.status(400).json({error:'Selecione um áudio ou vídeo.'});
- if(!/^(audio|video)\//.test(req.file.mimetype))return res.status(415).json({error:'Formato de mídia inválido.'});
+ if(!/^(audio|video)\//.test(req.file.mimetype)&&! /\.(mp3|mp4|m4a|mov|webm|wav|ogg|mpeg|mpga|flac|mkv)$/i.test(req.file.originalname||''))return res.status(415).json({error:'Formato de mídia inválido.'});
  const dir=await mkdtemp(path.join(tmpdir(),'rastro-'));const src=path.join(dir,'media.bin');
  try{
   await writeFile(src,req.file.buffer);
