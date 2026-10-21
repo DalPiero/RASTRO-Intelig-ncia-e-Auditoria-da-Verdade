@@ -54,6 +54,12 @@ app.get('/api/inventory',async(_req,res)=>{
  if(!await database())return res.json({persistent:false,counts:[],note:'Inventário cumulativo aguarda DATABASE_URL de banco PostgreSQL persistente.'});
  try{const data=await db.query('SELECT kind,item,count::text AS count,updated_at FROM rastro_inventory ORDER BY kind,item');res.json({persistent:true,counts:data.rows});}catch(e){fail(res,e)}
 });
+app.post('/api/inventory/program',async(req,res)=>{
+ if(!await database())return res.status(503).json({error:'Inventário persistente indisponível.'});
+ const allowed=['impresso','preco','livros','artigos','nexus'];
+ if(!allowed.includes(req.body?.program))return res.status(400).json({error:'Programa desconhecido.'});
+ try{await incrementInventory('programa',[req.body.program]);res.json({recorded:true})}catch(e){fail(res,e)}
+});
 app.post('/api/inventory/search',async(req,res)=>{
  if(!await database())return res.status(503).json({error:'Contadores cumulativos indisponíveis: configure DATABASE_URL.'});
  const term=String(req.body?.term||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().slice(0,60);
