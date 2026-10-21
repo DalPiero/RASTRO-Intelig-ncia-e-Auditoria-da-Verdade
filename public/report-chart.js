@@ -31,15 +31,15 @@ evidence.innerHTML='<div class="step">04C / RASTREABILIDADE</div><h2>Alegações
 s.insertAdjacentElement('afterend',evidence);
 let evidenceRows=[];
 function extractEvidence(text){
- const sections=text.split(/(?:\\*\\*)?Alega(?:ç|c)(?:ã|a)o\\s+(\\d+)\\s*:/i);
+ const sections=text.split(/(?:\*\*)?Alega(?:ç|c)(?:ã|a)o\s+(\d+)\s*:/i);
  const rows=[];
  for(let i=1;i<sections.length;i+=2){
   const part=sections[i+1]||'';
-  const verdict=part.match(/Veredito\\s+provis[oó]rio\\s*:\\s*(?:\\*\\*)?\\s*([^\\n\\r]+)/i);
-  const fragment=part.match(/(?:\\*\\*)?\\s*Trecho\\s*:\\s*(?:\\*\\*)?\\s*([^\\n\\r]+)/i);
-  const evidenceSection=part.split(/Evid[eê]ncias\\s+com\\s+links\\s*:/i)[1]?.split(/(?:\\*\\*)?\\s*(?:Justificativa|Lacunas)\\s*:/i)[0]||'';
-  const urls=[...new Set((evidenceSection.match(/https?:\\/\\/[^\\s)\\]<>]+/g)||[]).map(u=>u.replace(/[.,;]+$/,'')))];
-  rows.push({number:Number(sections[i]),text:(fragment?.[1]||'').replace(/\\*\\*/g,'').trim(),verdict:(verdict?.[1]||'Não identificado').replace(/\\*\\*/g,'').trim(),urls});
+  const verdict=part.match(/Veredito\s+provis[oó]rio\s*:\s*(?:\*\*)?\s*([^\n\r]+)/i);
+  const fragment=part.match(/(?:\*\*)?\s*Trecho\s*:\s*(?:\*\*)?\s*([^\n\r]+)/i);
+  const evidenceSection=part.split(/Evid[eê]ncias\s+com\s+links\s*:/i)[1]?.split(/(?:\*\*)?\s*(?:Justificativa|Lacunas)\s*:/i)[0]||'';
+  const urls=[...new Set((evidenceSection.match(/https?:\/\/[^\s)\]<>]+/g)||[]).map(u=>u.replace(/[.,;]+$/,'')))];
+  rows.push({number:Number(sections[i]),text:(fragment?.[1]||'').replace(/\*\*/g,'').trim(),verdict:(verdict?.[1]||'Não identificado').replace(/\*\*/g,'').trim(),urls});
  }
  return rows;
 }
@@ -65,7 +65,7 @@ document.getElementById('rastro-evidence-csv').addEventListener('click',()=>{
  if(!evidenceRows.length)return;
  const quote=s=>'"'+String(s).replace(/"/g,'""')+'"';
  const rows=[['Número','Trecho','Veredito','URLs'],...evidenceRows.map(r=>[r.number,r.text,r.verdict,r.urls.join(' | ')])];
- const csv='\\ufeff'+rows.map(r=>r.map(quote).join(';')).join('\\r\\n');
+ const csv='\ufeff'+rows.map(r=>r.map(quote).join(';')).join('\r\n');
  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
  const a=document.createElement('a');a.href=url;a.download='RASTRO_Alegacoes_Fontes.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
