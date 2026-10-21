@@ -10,6 +10,17 @@ $('all').onclick=()=>{document.querySelectorAll('.topic input').forEach(x=>x.che
 $('none').onclick=()=>{document.querySelectorAll('.topic input').forEach(x=>x.checked=false);counter()};
 [...document.querySelectorAll('[data-mode]')].forEach(button=>button.addEventListener('click',()=>{mode=button.dataset.mode;document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b===button));['url','video','audio','text'].forEach(k=>$('pane-'+k).hidden=k!==mode);notify('Entrada selecionada: '+mode)}));
 $('openUrl').onclick=()=>{try{const u=new URL($('url').value);if(!['http:','https:'].includes(u.protocol))throw Error();window.open(u.href,'_blank','noopener,noreferrer')}catch{notify('Digite uma URL HTTP(S) válida.')}};
+$('extractUrl').onclick=async()=>{
+ const url=$('url').value.trim(),button=$('extractUrl');
+ if(!url){notify('Informe a URL pública da publicação.');return;}
+ busy(button,true,'✦ Ler conteúdo da URL');
+ try{
+  const data=await request('/api/url/extract',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+  $('transcript').value=data.text||'';
+  notify((data.note||'Texto extraído.')+' URL original preservada.');
+ }catch(e){notify('Falha ao ler URL: '+e.message)}
+ finally{busy(button,false,'✦ Ler conteúdo da URL');}
+};
 for(const kind of ['audio','video'])$(kind).addEventListener('change',e=>{currentMedia=e.target.files[0]||null;const player=$(kind+'Preview');if(mediaURL)URL.revokeObjectURL(mediaURL);if(!currentMedia)return;mediaURL=URL.createObjectURL(currentMedia);player.src=mediaURL;player.hidden=false;notify('Arquivo selecionado: '+currentMedia.name)});
 $('subtitle').addEventListener('change',async e=>{const f=e.target.files[0];if(f){$('transcript').value=await f.text();notify('Transcrição importada: '+f.name)}});
 async function request(route,opts={}){if(route!=='/api/health'){const isFree=sessionStorage.getItem('rastro_mode')==='free';if(isFree&&route==='/api/transcribe')throw Error('A transcrição é exclusiva do passe pago de 12 horas.');const token=isFree?'':(sessionStorage.getItem('rastro_token')||'');if(!isFree&&!token)throw Error('Escolha o acesso gratuito ou informe o código do passe.');opts.headers={...(opts.headers||{}),...(isFree?{'X-RASTRO-FREE':'1'}:{'X-RASTRO-TOKEN':token})};}const r=await fetch(route,opts);if(r.status===401){sessionStorage.removeItem('rastro_token');sessionStorage.removeItem('rastro_mode');}let j;try{j=await r.json()}catch{throw Error('Resposta inválida do servidor.')}if(!r.ok)throw Error(j.error||'Erro HTTP '+r.status);return j}
