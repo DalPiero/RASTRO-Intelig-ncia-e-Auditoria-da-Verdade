@@ -8,6 +8,8 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { timingSafeEqual, randomBytes, createHash } from 'node:crypto';
 
 const app = express();
@@ -175,28 +177,71 @@ function extractXStatusId(raw) {
   return match?.[1]||null;
  }catch{return null;}
 }
+const socialHosts=['x.com','twitter.com','instagram.com','facebook.com','fb.watch','youtube.com','youtu.be','tiktok.com','threads.net','linkedin.com'];
+function siteHost(host,suffix){return host===suffix||host.endsWith('.'+suffix);}
+function blockedIp(ip){
+ if(!isIP(ip))return true;
+ if(ip.includes(':')){const q=ip.toLowerCase();return q==='::1'||q==='::'||q.startsWith('fc')||q.startsWith('fd')||q.startsWith('fe80')||q.startsWith('::ffff:')||q.startsWith('2001:db8:');}
+ const p=ip.split('.').map(Number);
+ return p[0]===0||p[0]===10||p[0]===127||p[0]>=224||p[0]===169&&p[1]===254||p[0]===172&&p[1]>=16&&p[1]<=31||p[0]===192&&p[1]===168||p[0]===100&&p[1]>=64&&p[1]<=127||p[0]===192&&p[1]===0||p[0]===198&&p[1]>=18&&p[1]<=19;
+}
+function decodeEntities(t){
+ return t.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp|ndash|mdash);/gi,(_m,e)=>{
+  const common={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' ',ndash:'–',mdash:'—'};
+  if(e[0]==='#'){const n=e[1]?.toLowerCase()==='x'?parseInt(e.slice(2),16):Number(e.slice(1));return Number.isInteger(n)&&n>0&&n<=0x10ffff?String.fromCodePoint(n):'';}
+  return common[e.toLowerCase()]||' ';
+ });
+}
+function pageText(html){
+ const main=html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1]||html;
+ return decodeEntities(main.replace(/<!--[^]*?-->/g,' ').replace(/<(script|style|nav|footer|header|svg|form|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi,' ').replace(/<\/(p|div|li|h[1-6]|article|section)>/gi,'\n').replace(/<br\s*\/?\s*>/gi,'\n').replace(/<[^>]*>/g,' ').replace(/[ \t]+/g,' ').replace(/\n[\s\n]+/g,'\n').trim()).slice(0,45000);
+}
+async function publicHtml(url){
+ const target=new URL(url);
+ if(target.protocol!=='https:'||target.username||target.password||target.port&&target.port!=='443'||target.href.length>2048)throw Error('Use uma URL HTTPS pública, sem credenciais e sem portas alternativas.');
+ const host=target.hostname.toLowerCase();
+ if(host==='localhost'||host.endsWith('.local')||isIP(host)||!host.includes('.'))throw Error('Endereço não permitido.');
+ const resolved=await lookup(host,{all:true,verbatim:true});
+ if(!resolved.length||resolved.some(a=>blockedIp(a.address)))throw Error('Endereço privado ou reservado não permitido.');
+ const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),9000);
+ try{
+  const response=await fetch(target,{signal:ctl.signal,redirect:'manual',headers:{'Accept':'text/html','User-Agent':'RASTRO-URL-Reader/1.0'}});
+  if(response.status>=300&&response.status<400)throw Error('Redirecionamento não seguido por segurança. Informe a URL final.');
+  if(!response.ok)throw Error('A página recusou acesso (HTTP '+response.status+').');
+  const contentType=response.headers.get('content-type')||'';
+  if(!/text\/html|application\/xhtml\+xml/i.test(contentType))throw Error('O endereço não disponibiliza uma página HTML. Envie o arquivo autorizado.');
+  const limit=1_000_000;const reader=response.body.getReader();const chunks=[];let len=0;
+  try{while(true){const r=await reader.read();if(r.done)break;len+=r.value.byteLength;if(len>limit)throw Error('Página excede o limite de leitura de 1 MB.');chunks.push(r.value);}}finally{reader.releaseLock();}
+  const full=new Uint8Array(len);let offset=0;for(const chunk of chunks){full.set(chunk,offset);offset+=chunk.length;}
+  return new TextDecoder('utf-8').decode(full);
+ }finally{clearTimeout(timer);}
+}
 app.post('/api/url/extract',protect,async(req,res)=>{
  const raw=String(req.body?.url||'').trim();
- let u;
- try{u=new URL(raw);if(u.protocol!=='https:')throw Error('HTTPS obrigatório');}
- catch{return res.status(400).json({error:'Informe uma URL HTTPS válida.'});}
+ let u;try{u=new URL(raw);if(u.protocol!=='https:'||u.username||u.password)throw Error();}catch{return res.status(400).json({error:'Insira uma URL HTTPS válida.'});}
+ const host=u.hostname.toLowerCase();
  const id=extractXStatusId(raw);
- if(!id)return res.status(422).json({error:'Nesta versão, a leitura automática por URL está disponível para publicações públicas do X, quando a API oficial estiver configurada. Para outras páginas, cole o texto ou envie a mídia autorizada.'});
- const bearer=process.env.X_BEARER_TOKEN;
- if(!bearer)return res.status(503).json({error:'Para ler esta publicação do X, configure X_BEARER_TOKEN no Render com uma credencial oficial autorizada. O RASTRO não pode garantir acesso ao conteúdo apenas com o link. Vídeos do X ainda não são transcritos por esta função.'});
- try{
-  const ctl=new AbortController();
-  const tm=setTimeout(()=>ctl.abort(),12000);
-  let result;
+ if(id){
+  const bearer=process.env.X_BEARER_TOKEN;
+  if(!bearer)return res.status(422).json({error:'Texto do X requer X_BEARER_TOKEN com acesso oficial autorizado. Áudio e vídeo do X não são transcritos apenas com a URL.'});
   try{
-   result=await fetch('https://api.x.com/2/tweets/'+id+'?tweet.fields=created_at,lang,author_id',{headers:{Authorization:'Bearer '+bearer},signal:ctl.signal});
-  }finally{clearTimeout(tm);}
-  const data=await result.json().catch(()=>({}));
-  if(!result.ok)return res.status(502).json({error:'A API do X não disponibilizou a publicação (HTTP '+result.status+'). Verifique permissões do projeto, acesso ao post e possíveis restrições da plataforma.'});
-  const text=String(data?.data?.text||'').trim();
-  if(!text)return res.status(404).json({error:'Publicação sem texto acessível. Se houver vídeo, envie o arquivo autorizado na aba Filme para transcrever o áudio.'});
-  res.json({source:u.href,text,kind:'x-post-text',note:'Texto da publicação obtido pela API oficial do X. Não é transcrição do áudio de vídeo nem verificação factual.'});
- }catch(e){console.error('X URL:',e.message);res.status(502).json({error:'Não foi possível obter o texto do X neste momento.'});}
+   const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),9000);
+   let response;try{response=await fetch('https://api.x.com/2/tweets/'+id+'?tweet.fields=created_at,lang,author_id',{headers:{Authorization:'Bearer '+bearer},signal:ctl.signal});}finally{clearTimeout(timer);}
+   if(!response.ok)return res.status(422).json({error:'API do X recusou a leitura (HTTP '+response.status+').'});
+   const data=await response.json();const text=String(data?.data?.text||'').trim();
+   if(!text)return res.status(422).json({error:'Nenhum texto público recuperado do X. Envie a mídia autorizada para transcrição.'});
+   return res.json({source:u.href,text,kind:'x-post-text',note:'Texto da publicação recuperado via API oficial; não é transcrição de vídeo.'});
+  }catch(e){console.error('X URL:',e.message);return res.status(502).json({error:'Erro de comunicação com a API do X.'});}
+ }
+ if(socialHosts.some(h=>siteHost(host,h))){
+  return res.status(422).json({error:'A plataforma '+host+' não disponibiliza transcrição geral por link público. Use uma integração oficial autorizada, legendas disponibilizadas pelo titular ou envie o arquivo de mídia permitido. O RASTRO não contorna login, direitos autorais ou restrições da plataforma.'});
+ }
+ try{
+  const html=await publicHtml(raw);
+  const text=pageText(html);
+  if(text.length<40)return res.status(422).json({error:'Não encontrei texto suficiente na página pública. Pode ser conteúdo carregado por JavaScript, login obrigatório ou vídeo.'});
+  res.json({source:u.href,text,kind:'public-webpage',note:'Texto extraído da página HTML pública. Não houve transcrição de áudio ou vídeo; revise o conteúdo antes de auditar.'});
+ }catch(e){console.error('URL READ:',e.message);res.status(422).json({error:'Falha ao ler página pública: '+e.message});}
 });
 
 app.post('/api/transcribe',protect,upload.single('media'),async(req,res)=>{
