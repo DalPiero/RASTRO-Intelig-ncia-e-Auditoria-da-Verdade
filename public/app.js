@@ -49,3 +49,17 @@ document.getElementById('issuePass').onclick=async()=>{
   document.getElementById('passResult').textContent=output;
  }catch(e){document.getElementById('passResult').textContent='Erro: '+e.message}
 };
+
+$('extractUrl').onclick=async()=>{
+ const url=$('url').value.trim();if(!url)return notify('Cole uma URL pública.');
+ const button=$('extractUrl');busy(button,true,'📥 Extrair texto da URL');
+ try{const data=await request('/api/extract-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});$('transcript').value=data.text;notify('Texto extraído da página. '+data.note);}
+ catch(e){notify('Falha na URL: '+e.message)}finally{busy(button,false,'📥 Extrair texto da URL')}
+};
+$('document').addEventListener('change',async e=>{
+ const file=e.target.files[0];if(!file)return;
+ try{const fd=new FormData();fd.append('document',file);notify('Lendo documento '+file.name+'...');
+ const data=await request('/api/extract-file',{method:'POST',body:fd});$('transcript').value=data.text;
+ notify('Documento lido: '+data.filename+(data.truncated?' (texto limitado a 200 mil caracteres)':''));
+ }catch(err){notify('Falha ao ler documento: '+err.message)}
+});
