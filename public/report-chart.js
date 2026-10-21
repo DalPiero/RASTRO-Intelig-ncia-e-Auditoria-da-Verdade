@@ -2,10 +2,10 @@
 (() => {
 const host=document.querySelector('section.report');if(!host)return;
 const s=document.createElement('section');s.className='card';s.style.marginBottom='30px';
-s.innerHTML='<div class="step">04B / RELATÓRIO VISUAL</div><h2>Exportar resultados em imagem</h2><p class="desc">Informe os totais conferidos no laudo. O RASTRO não deduz automaticamente vereditos da resposta da IA.</p><div id="rastro-chart-inputs"></div><div class="buttons"><label>Tipo <select id="rastro-chart-type"><option value="bar">Barras</option><option value="circle">Circular</option></select></label><button class="primary" id="rastro-chart-render">Gerar prévia</button><button class="quiet" id="rastro-chart-save" disabled>↓ Baixar PNG</button></div><p id="rastro-chart-message" role="status">Preencha os valores verificados.</p><canvas id="rastro-chart-canvas" width="1600" height="900" style="width:100%;height:auto;border-radius:14px"></canvas>';
+s.innerHTML='<div class="step">04B / RELATÓRIO VISUAL</div><h2>Exportar resultados em imagem</h2><p class="desc">O RASTRO extrai os vereditos identificados no laudo e preenche os totais. Revise os números antes de exportar; alegações sem veredito reconhecido ficam como inconclusivas.</p><div id="rastro-chart-inputs"></div><div class="buttons"><label>Tipo <select id="rastro-chart-type"><option value="bar">Barras</option><option value="circle">Circular</option></select></label><button class="primary" id="rastro-chart-render">Gerar prévia</button><button class="quiet" id="rastro-chart-save" disabled>↓ Baixar PNG</button></div><p id="rastro-chart-message" role="status">Preencha os valores verificados.</p><canvas id="rastro-chart-canvas" width="1600" height="900" style="width:100%;height:auto;border-radius:14px"></canvas>';
 host.insertAdjacentElement('afterend',s);
 const st=document.createElement('style');st.textContent='#rastro-chart-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}#rastro-chart-inputs input,#rastro-chart-type{display:block;width:100%;background:#081626;border:1px solid #56738d;border-radius:9px;color:white;padding:11px;margin-top:7px}@media(max-width:650px){#rastro-chart-inputs{grid-template-columns:1fr}}';document.head.append(st);
-const labels=['Verdadeiro / confirmado','Falso / refutado','Enganoso / fora de contexto','Inconclusivo / sem prova'];
+const labels=['Verdadeiro / contextualizado','Falso / refutado','Enganoso / fora de contexto','Inconclusivo / sem prova'];
 const colors=['#70dccb','#fb7585','#ffd078','#9cafff'];
 const inputs=document.getElementById('rastro-chart-inputs');
 for(let i=0;i<labels.length;i++){const label=document.createElement('label');label.textContent=labels[i];const el=document.createElement('input');el.type='number';el.min='0';el.max='1000000';el.step='1';el.value='0';label.append(el);inputs.append(label);}
@@ -16,6 +16,33 @@ function invalidate(){ready=false;btn.disabled=true;msg.textContent='Valores alt
 valueEls.forEach(el=>el.addEventListener('input',invalidate));
 document.getElementById('rastro-chart-type').addEventListener('change',invalidate);
 function drawText(v,x,y,size=28,color='#f3f7ff',weight=500){ctx.fillStyle=color;ctx.font=weight+' '+size+'px Arial,sans-serif';ctx.fillText(v,x,y);}
+// Classificação a partir das seções do próprio laudo. Uma seção = uma alegação.
+function classify(verdict){
+ const v=String(verdict||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ if(/enganos|meia.verdade|fora de contexto|omiss|distorc|imprecis|falacia|tendencios/.test(v))return 2;
+ if(/fals|refutad|incorret|mentira comprovada/.test(v))return 1;
+ if(/verdadeir|confirmad|corret|comprovad/.test(v))return 0;
+ return 3;
+}
+let lastParsed='';
+function loadFromReport(){
+ const text=document.getElementById('report')?.textContent||'';
+ if(!text.trim()||text.includes('O relatório aparecerá aqui'))return;
+ if(text===lastParsed)return;
+ const sections=text.split(/(?:\*\*)?Alega(?:ç|c)(?:ã|a)o\s+\d+\s*:/i).slice(1);
+ if(!sections.length){msg.textContent='Não encontrei alegações numeradas no relatório. Preencha os valores manualmente.';return;}
+ const totals=[0,0,0,0];
+ for(const section of sections){
+  const match=section.match(/(?:\*\*)?\s*[-•]?\s*(?:\*\*)?\s*Veredito\s+provis[oó]rio\s*:\s*(?:\*\*)?\s*([^\n\r]+)/i);
+  totals[classify(match?.[1])]++;
+ }
+ valueEls.forEach((el,i)=>el.value=String(totals[i]));
+ lastParsed=text;render();
+ msg.textContent='Leitura automática: '+sections.length+' alegações. Confira a classificação no laudo antes de divulgar.';
+}
+const reportNode=document.getElementById('report');
+if(reportNode)new MutationObserver(loadFromReport).observe(reportNode,{childList:true,characterData:true,subtree:true});
+loadFromReport();
 function render(){
  const raw=valueEls.map(el=>el.value);const n=raw.map(Number);
  if(raw.some(x=>!x.trim())||n.some(x=>!Number.isSafeInteger(x)||x<0||x>1000000)){invalidate();msg.textContent='Digite inteiros de 0 a 1.000.000.';return;}
@@ -28,11 +55,11 @@ function render(){
  drawText('Total classificado: '+total,80,303,36,'#ffffff',700);
  if(document.getElementById('rastro-chart-type').value==='bar'){
    const max=Math.max(...n);
-   n.forEach((v,i)=>{const y=370+i*97;drawText(labels[i],85,y,27);ctx.fillStyle='#2c4258';ctx.fillRect(565,y-30,760,46);ctx.fillStyle=colors[i];ctx.fillRect(565,y-30,760*v/max,46);drawText(String(v),1370,y+5,34,'#ffffff',700);});
+   n.forEach((v,i)=>{const y=370+i*97;drawText(labels[i],85,y,27);ctx.fillStyle='#2c4258';ctx.fillRect(565,y-30,760,46);ctx.fillStyle=colors[i];ctx.fillRect(565,y-30,760*v/max,46);drawText(v+'  •  '+(100*v/total).toFixed(1).replace('.',',')+'%',1350,y+5,29,'#ffffff',700);});
  }else{
    let start=-Math.PI/2;
    n.forEach((v,i)=>{if(!v)return;const angle=2*Math.PI*v/total;ctx.beginPath();ctx.arc(450,525,205,start,start+angle);ctx.arc(450,525,115,start+angle,start,true);ctx.closePath();ctx.fillStyle=colors[i];ctx.fill();start+=angle;});
-   drawText(String(total),400,540,65,'#ffffff',700);
+   drawText(String(total),408,530,65,'#ffffff',700);drawText('alegações',390,570,24,'#ffffff');
    n.forEach((v,i)=>{const y=380+i*92;ctx.fillStyle=colors[i];ctx.fillRect(800,y-20,27,27);drawText(labels[i],850,y,28);drawText(v+' ('+(100*v/total).toFixed(1).replace('.',',')+'%)',850,y+37,27,'#cbdcec');});
  }
  ctx.strokeStyle='#49647e';ctx.beginPath();ctx.moveTo(80,766);ctx.lineTo(1520,766);ctx.stroke();
