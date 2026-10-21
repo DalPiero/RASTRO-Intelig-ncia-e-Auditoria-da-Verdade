@@ -165,6 +165,40 @@ function fail(res,e){
 }
 function runFFmpeg(args){return new Promise((resolve,reject)=>{ const p=spawn(process.env.FFMPEG_BIN||ffmpegPath||'ffmpeg',args,{stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>{err+=d.toString().slice(-1000)});p.on('error',reject);p.on('close',code=>code===0?resolve():reject(new Error('FFmpeg: '+err.slice(-400))));});}
 function stamp(s){let t=Math.max(0,Number(s)||0);return `${String(Math.floor(t/3600)).padStart(2,'0')}:${String(Math.floor(t%3600/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`}
+
+function extractXStatusId(raw) {
+ try {
+  const u=new URL(raw);
+  const host=u.hostname.toLowerCase();
+  if(!['x.com','www.x.com','twitter.com','www.twitter.com','mobile.twitter.com'].includes(host))return null;
+  const match=u.pathname.match(/^\/(?:[^/]+)\/status\/(\d+)(?:\/|$)/);
+  return match?.[1]||null;
+ }catch{return null;}
+}
+app.post('/api/url/extract',protect,async(req,res)=>{
+ const raw=String(req.body?.url||'').trim();
+ let u;
+ try{u=new URL(raw);if(u.protocol!=='https:')throw Error('HTTPS obrigatório');}
+ catch{return res.status(400).json({error:'Informe uma URL HTTPS válida.'});}
+ const id=extractXStatusId(raw);
+ if(!id)return res.status(422).json({error:'Nesta versão, a leitura automática por URL está disponível para publicações públicas do X, quando a API oficial estiver configurada. Para outras páginas, cole o texto ou envie a mídia autorizada.'});
+ const bearer=process.env.X_BEARER_TOKEN;
+ if(!bearer)return res.status(503).json({error:'Para ler esta publicação do X, configure X_BEARER_TOKEN no Render com uma credencial oficial autorizada. O RASTRO não pode garantir acesso ao conteúdo apenas com o link. Vídeos do X ainda não são transcritos por esta função.'});
+ try{
+  const ctl=new AbortController();
+  const tm=setTimeout(()=>ctl.abort(),12000);
+  let result;
+  try{
+   result=await fetch('https://api.x.com/2/tweets/'+id+'?tweet.fields=created_at,lang,author_id',{headers:{Authorization:'Bearer '+bearer},signal:ctl.signal});
+  }finally{clearTimeout(tm);}
+  const data=await result.json().catch(()=>({}));
+  if(!result.ok)return res.status(502).json({error:'A API do X não disponibilizou a publicação (HTTP '+result.status+'). Verifique permissões do projeto, acesso ao post e possíveis restrições da plataforma.'});
+  const text=String(data?.data?.text||'').trim();
+  if(!text)return res.status(404).json({error:'Publicação sem texto acessível. Se houver vídeo, envie o arquivo autorizado na aba Filme para transcrever o áudio.'});
+  res.json({source:u.href,text,kind:'x-post-text',note:'Texto da publicação obtido pela API oficial do X. Não é transcrição do áudio de vídeo nem verificação factual.'});
+ }catch(e){console.error('X URL:',e.message);res.status(502).json({error:'Não foi possível obter o texto do X neste momento.'});}
+});
+
 app.post('/api/transcribe',protect,upload.single('media'),async(req,res)=>{
  if(!openai)return res.status(503).json({error:'Configure OPENAI_API_KEY no servidor.'});
  if(!req.file)return res.status(400).json({error:'Selecione um áudio ou vídeo.'});
