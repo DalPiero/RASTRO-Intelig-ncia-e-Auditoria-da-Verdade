@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, randomBytes, createHash } from 'node:crypto';
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -18,20 +18,86 @@ app.disable('x-powered-by');
 app.use(express.json({limit:'12mb'}));
 app.use(express.static(path.join(process.cwd(),'public')));
 const recent = new Map();
-function protect(req,res,next){
- const expected = process.env.RASTRO_ACCESS_TOKEN || '';
- if(expected.length < 24) return res.status(503).json({error:'Acesso privado indisponível. Configure RASTRO_ACCESS_TOKEN com pelo menos 24 caracteres no Render.'});
- const got = req.get('X-RASTRO-TOKEN') || '';
- const x=Buffer.from(got),y=Buffer.from(expected);
- if(x.length!==y.length || !timingSafeEqual(x,y)) return res.status(401).json({error:'Código de acesso inválido. Consulte o administrador do RASTRO.'});
- const key=req.ip||'local',now=Date.now();
+app.set('trust proxy',1);
+function adminOK(raw){
+ const expected=process.env.RASTRO_ACCESS_TOKEN||'';
+ if(expected.length<24)return false;
+ const a=Buffer.from(expected),b=Buffer.from(String(raw||''));
+ return a.length===b.length&&timingSafeEqual(a,b);
+}
+const sig=raw=>createHash('sha256').update(String(raw)).digest('hex');
+const freeSalt=process.env.RASTRO_FREE_SALT || process.env.RASTRO_ACCESS_TOKEN || '';
+let passReady=null;
+async function passDatabase(){
+ if(!db)throw Error('DATABASE_URL não configurada');
+ if(!passReady)passReady=db.query(`CREATE TABLE IF NOT EXISTS rastro_passes (
+ token_hash TEXT PRIMARY KEY,
+ expires_at TIMESTAMPTZ NOT NULL,
+ reference TEXT NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ )`).then(()=>db.query(`CREATE TABLE IF NOT EXISTS rastro_free_daily (
+ fingerprint TEXT NOT NULL,
+ usage_day DATE NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ PRIMARY KEY(fingerprint,usage_day)
+ )`)).catch(e=>{passReady=null;throw e});
+ await passReady;
+}
+const todayUTC=()=>new Date().toISOString().slice(0,10);
+async function protect(req,res,next){
+ const token=req.get('X-RASTRO-TOKEN')||'';
+ const freeRequested=req.get('X-RASTRO-FREE')==='1';
+ let mode='';
+ if(adminOK(token))mode='admin';
+ else if(token.length>20 && db){
+  try{
+   await passDatabase();
+   const r=await db.query('SELECT 1 FROM rastro_passes WHERE token_hash=$1 AND expires_at>NOW()',[sig(token)]);
+   if(r.rowCount)mode='paid';
+  }catch(e){console.error('Access DB:',e.message)}
+ }
+ if(!mode&&freeRequested&&req.path==='/api/audit'){
+  if(process.env.RASTRO_FREE_ENABLED!=='true'||!db||freeSalt.length<24)
+   return res.status(503).json({error:'Acesso gratuito aguardando configuração do banco de dados e ativação pelo administrador.'});
+  const body=req.body||{};
+  if(typeof body.text!=='string'||body.text.length>2500)
+   return res.status(400).json({error:'Teste gratuito limitado a 2.500 caracteres por auditoria.'});
+  const identity=sig(freeSalt+'|'+req.ip+'|'+(req.get('user-agent')||'').slice(0,160));
+  try{
+   await passDatabase();
+   const r=await db.query('INSERT INTO rastro_free_daily(fingerprint,usage_day) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING fingerprint',[identity,todayUTC()]);
+   if(!r.rowCount)return res.status(429).json({error:'Sua auditoria gratuita de hoje já foi utilizada. Retorne amanhã (UTC) ou adquira o passe de 12 horas.'});
+   mode='free';
+  }catch(e){console.error('Free DB:',e.message);return res.status(503).json({error:'Contador de acesso gratuito indisponível.'})}
+ }
+ if(!mode)return res.status(401).json({error:'Código inválido ou expirado. Escolha um acesso gratuito disponível ou um passe de 12 horas.'});
+ const key=mode==='free'?'free:'+req.ip:sig(token),now=Date.now();
  const times=(recent.get(key)||[]).filter(t=>now-t<3600000);
- if(times.length>=10)return res.status(429).json({error:'Limite temporário: máximo de 10 operações por hora neste servidor.'});
- times.push(now);recent.set(key,times);
- if(recent.size>1000)recent.clear();
+ if(times.length>=10)return res.status(429).json({error:'Limite de proteção: máximo de 10 operações por hora por acesso.'});
+ times.push(now);recent.set(key,times);if(recent.size>1000)recent.clear();
+ req.accessMode=mode;
  next();
 }
-app.get('/api/health',(_req,res)=>res.json({ok:true,configured:!!openai,protected:!!(process.env.RASTRO_ACCESS_TOKEN||'').length,ffmpegRequired:true}));
+app.post('/api/admin/issue-pass',async(req,res)=>{
+ if(!adminOK(req.get('X-RASTRO-ADMIN')))return res.status(403).json({error:'Acesso administrativo negado.'});
+ if(!db)return res.status(503).json({error:'Configure DATABASE_URL antes de emitir passes.'});
+ const ref=String(req.body?.reference||'').trim();
+ if(ref.length<5||ref.length>120)return res.status(400).json({error:'Informe referência de pagamento verificado (5 a 120 caracteres).'});
+ try{
+  await passDatabase();
+  const code='ra12_'+randomBytes(24).toString('base64url');
+  const until=new Date(Date.now()+12*3600000);
+  await db.query('INSERT INTO rastro_passes(token_hash,expires_at,reference) VALUES($1,$2,$3)',[sig(code),until,ref]);
+  res.json({code,expiresAt:until.toISOString(),message:'Passe criado depois de verificação manual. Envie o código ao comprador por canal privado.'});
+ }catch(e){fail(res,e)}
+});
+app.get('/api/access/status',async(req,res)=>{
+ const token=req.get('X-RASTRO-TOKEN')||'';
+ if(adminOK(token))return res.json({active:true,mode:'admin'});
+ if(!token||!db)return res.json({active:false,mode:'none'});
+ try{await passDatabase();const r=await db.query('SELECT expires_at FROM rastro_passes WHERE token_hash=$1 AND expires_at>NOW()',[sig(token)]);res.json({active:!!r.rowCount,mode:r.rowCount?'paid':'none',expiresAt:r.rows[0]?.expires_at||null})}catch{res.json({active:false,mode:'none'})}
+});
+app.get('/api/health',(_req,res)=>res.json({ok:true,configured:!!openai,protected:!!(process.env.RASTRO_ACCESS_TOKEN||'').length,paidPassReady:!!db,freeAvailable:!!db&&process.env.RASTRO_FREE_ENABLED==='true',ffmpegRequired:true}));
 
 const db=process.env.DATABASE_URL ? new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='disable'?false:{rejectUnauthorized:false},max:3}) : null;
 let dbReady=null;
