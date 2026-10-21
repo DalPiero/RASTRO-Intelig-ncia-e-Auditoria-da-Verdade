@@ -12,7 +12,7 @@ $('none').onclick=()=>{document.querySelectorAll('.topic input').forEach(x=>x.ch
 $('openUrl').onclick=()=>{try{const u=new URL($('url').value);if(!['http:','https:'].includes(u.protocol))throw Error();window.open(u.href,'_blank','noopener,noreferrer')}catch{notify('Digite uma URL HTTP(S) válida.')}};
 for(const kind of ['audio','video'])$(kind).addEventListener('change',e=>{currentMedia=e.target.files[0]||null;const player=$(kind+'Preview');if(mediaURL)URL.revokeObjectURL(mediaURL);if(!currentMedia)return;mediaURL=URL.createObjectURL(currentMedia);player.src=mediaURL;player.hidden=false;notify('Arquivo selecionado: '+currentMedia.name)});
 $('subtitle').addEventListener('change',async e=>{const f=e.target.files[0];if(f){$('transcript').value=await f.text();notify('Transcrição importada: '+f.name)}});
-async function request(route,opts={}){if(route!=='/api/health'){const token=sessionStorage.getItem('rastro_token')||prompt('Código privado de acesso ao RASTRO (não é a chave de API):');if(!token)throw Error('Informe o código privado de acesso.');sessionStorage.setItem('rastro_token',token);opts.headers={...(opts.headers||{}),'X-RASTRO-TOKEN':token};}const r=await fetch(route,opts);if(r.status===401)sessionStorage.removeItem('rastro_token');let j;try{j=await r.json()}catch{throw Error('Resposta inválida do servidor.')}if(!r.ok)throw Error(j.error||'Erro HTTP '+r.status);return j}
+async function request(route,opts={}){if(route!=='/api/health'){const isFree=sessionStorage.getItem('rastro_mode')==='free';if(isFree&&route==='/api/transcribe')throw Error('A transcrição é exclusiva do passe pago de 12 horas.');const token=isFree?'':(sessionStorage.getItem('rastro_token')||'');if(!isFree&&!token)throw Error('Escolha o acesso gratuito ou informe o código do passe.');opts.headers={...(opts.headers||{}),...(isFree?{'X-RASTRO-FREE':'1'}:{'X-RASTRO-TOKEN':token})};}const r=await fetch(route,opts);if(r.status===401){sessionStorage.removeItem('rastro_token');sessionStorage.removeItem('rastro_mode');}let j;try{j=await r.json()}catch{throw Error('Resposta inválida do servidor.')}if(!r.ok)throw Error(j.error||'Erro HTTP '+r.status);return j}
 (async()=>{try{const h=await request('/api/health');$('health').textContent=h.configured?'● API conectada':'● chave de API não configurada';notify(h.configured?'Servidor pronto para transcrição e pesquisa.':'Servidor ativo; falta configurar OPENAI_API_KEY.')}catch{$('health').textContent='● servidor indisponível';notify('Abra o site no servidor Node.js. A página HTML sozinha não executa APIs.')}})();
 function busy(button,active,label){button.disabled=active;button.textContent=active?'⏳ Processando...':label}
 $('transcribe').onclick=async()=>{const f=(mode==='audio'&&$('audio').files[0])||(mode==='video'&&$('video').files[0]);if(!f){notify('Escolha Áudio ou Filme e selecione um arquivo de mídia.');return}const button=$('transcribe');busy(button,true,'✦ Transcrever mídia');notify('Enviando e transcrevendo áudio. Arquivos longos exigem tempo e recursos do servidor.');try{const fd=new FormData();fd.append('media',f);const data=await request('/api/transcribe',{method:'POST',body:fd});$('transcript').value=data.text;notify('Transcrição concluída: '+data.segments.length+' segmentos. '+data.note)}catch(e){notify('Erro na transcrição: '+e.message)}finally{busy(button,false,'✦ Transcrever mídia')}};
@@ -22,3 +22,30 @@ $('save').onclick=()=>{const blob=new Blob([report],{type:'text/plain;charset=ut
 
 // Atualiza indicadores de uso auditado após a pesquisa.
 const auditButton=document.getElementById('audit');if(auditButton)auditButton.addEventListener('click',()=>setTimeout(()=>window.RastroInventoryRefresh?.(),7000));
+
+document.getElementById('freeMode').onclick=()=>{
+ sessionStorage.setItem('rastro_mode','free');
+ sessionStorage.removeItem('rastro_token');
+ document.getElementById('accessChoice').textContent='Modo gratuito selecionado: uma auditoria textual por dia, até 2.500 caracteres.';
+};
+document.getElementById('enterPass').onclick=()=>{
+ const code=prompt('Cole seu código de acesso de 12 horas (não digite a chave da OpenAI):');
+ if(!code)return;
+ sessionStorage.setItem('rastro_token',code.trim());
+ sessionStorage.setItem('rastro_mode','paid');
+ document.getElementById('accessChoice').textContent='Código de passe informado. A validade será verificada pelo servidor ao pesquisar.';
+};
+document.getElementById('issuePass').onclick=async()=>{
+ const ref=document.getElementById('paymentRef').value.trim();
+ if(ref.length<5)return alert('Informe a referência da transação confirmada.');
+ if(!confirm('Você conferiu o pagamento no aplicativo Nubank?'))return;
+ const admin=prompt('Informe o código administrativo privado do RASTRO:');
+ if(!admin)return;
+ try{
+  const r=await fetch('/api/admin/issue-pass',{method:'POST',headers:{'Content-Type':'application/json','X-RASTRO-ADMIN':admin},body:JSON.stringify({reference:ref})});
+  const d=await r.json();
+  if(!r.ok)throw Error(d.error||'Falha na emissão');
+  const output='Código do passe: '+d.code+' | válido até '+new Date(d.expiresAt).toLocaleString('pt-BR')+'. Envie ao comprador somente por canal privado.';
+  document.getElementById('passResult').textContent=output;
+ }catch(e){document.getElementById('passResult').textContent='Erro: '+e.message}
+};
