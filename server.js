@@ -117,7 +117,8 @@ async function incrementInventory(kind,items){
  [kind,item]);
 }
 app.get('/api/inventory',async(_req,res)=>{
- if(!await database())return res.json({persistent:false,counts:[],note:'Inventário cumulativo aguarda DATABASE_URL de banco PostgreSQL persistente.'});
+ if(!db)return res.json({persistent:false,counts:[],diagnostic:'DATABASE_URL_AUSENTE',note:'O processo Node.js não recebeu a variável DATABASE_URL. Confira Environment e o deploy ativo.'});
+ if(!await database())return res.status(503).json({persistent:false,counts:[],diagnostic:'CONEXAO_OU_TABELA_FALHOU',note:'DATABASE_URL está presente, mas não foi possível conectar ao PostgreSQL ou inicializar a tabela. Consulte os Logs do Render por INVENTORY DB.'});
  try{const data=await db.query('SELECT kind,item,count::text AS count,updated_at FROM rastro_inventory ORDER BY kind,item');res.json({persistent:true,counts:data.rows});}catch(e){fail(res,e)}
 });
 app.post('/api/inventory/program',async(req,res)=>{
