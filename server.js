@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
 import OpenAI from 'openai';
+import pg from 'pg';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -31,6 +32,35 @@ function protect(req,res,next){
  next();
 }
 app.get('/api/health',(_req,res)=>res.json({ok:true,configured:!!openai,protected:!!(process.env.RASTRO_ACCESS_TOKEN||'').length,ffmpegRequired:true}));
+
+const db=process.env.DATABASE_URL ? new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='disable'?false:{rejectUnauthorized:false},max:3}) : null;
+let dbReady=null;
+async function database(){
+ if(!db)return false;
+ if(!dbReady)dbReady=db.query(`CREATE TABLE IF NOT EXISTS rastro_inventory (
+ kind TEXT NOT NULL, item TEXT NOT NULL, count BIGINT NOT NULL DEFAULT 0,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(kind,item)
+ )`).then(()=>true).catch(e=>{dbReady=null;console.error('INVENTORY DB:',e.message);return false});
+ return dbReady;
+}
+async function incrementInventory(kind,items){
+ if(!await database())return;
+ const unique=[...new Set(items.map(String))].filter(Boolean);
+ for(const item of unique)await db.query(
+ 'INSERT INTO rastro_inventory(kind,item,count) VALUES($1,$2,1) ON CONFLICT(kind,item) DO UPDATE SET count=rastro_inventory.count+1,updated_at=NOW()',
+ [kind,item]);
+}
+app.get('/api/inventory',async(_req,res)=>{
+ if(!await database())return res.json({persistent:false,counts:[],note:'Inventário cumulativo aguarda DATABASE_URL de banco PostgreSQL persistente.'});
+ try{const data=await db.query('SELECT kind,item,count::text AS count,updated_at FROM rastro_inventory ORDER BY kind,item');res.json({persistent:true,counts:data.rows});}catch(e){fail(res,e)}
+});
+app.post('/api/inventory/search',async(req,res)=>{
+ if(!await database())return res.status(503).json({error:'Contadores cumulativos indisponíveis: configure DATABASE_URL.'});
+ const term=String(req.body?.term||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().slice(0,60);
+ if(!['brasil','poesias','internet'].includes(term))return res.json({recorded:false});
+ try{await incrementInventory('busca',[term]);res.json({recorded:true})}catch(e){fail(res,e)}
+});
+
 const topics = [
 'Mentira comprovada (exige prova de intenção)','Falsidade factual','Afirmação enganosa','Meia-verdade',
 'Fora de contexto','Omissão relevante','Número impreciso','Generalização indevida','Falácia lógica',
@@ -109,6 +139,7 @@ app.post('/api/audit',protect,async(req,res)=>{
   const response=await openai.responses.create({model:'gpt-4.1-mini',tools:[{type:'web_search',search_context_size:'medium'}],tool_choice:'auto',input:prompt,max_output_tokens:3400});
   const citations=[];
   for(const output of response.output||[])for(const content of output.content||[])for(const ann of content.annotations||[])if(ann.type==='url_citation'&&ann.url)citations.push({title:ann.title||ann.url,url:ann.url});
+  try{await incrementInventory('auditoria',['total',...selected.map(i=>String(i+1).padStart(2,'0'))]);}catch(err){console.error('INVENTORY:',err.message)}
   res.json({report:response.output_text||'',citations:[...new Map(citations.map(v=>[v.url,v])).values()],model:'gpt-4.1-mini',reviewRequired:true});
  }catch(e){fail(res,e)}
 });
