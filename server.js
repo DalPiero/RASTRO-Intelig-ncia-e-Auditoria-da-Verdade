@@ -216,7 +216,17 @@ async function publicHtml(url){
   return new TextDecoder('utf-8').decode(full);
  }finally{clearTimeout(timer);}
 }
-app.post('/api/url/extract',protect,async(req,res)=>{
+// A leitura de HTML público não usa API paga; limite por origem para evitar abuso.
+const urlReads=new Map();
+function urlReadLimit(req,res,next){
+ const key=req.ip,now=Date.now();
+ const hits=(urlReads.get(key)||[]).filter(v=>now-v<3600000);
+ if(hits.length>=5)return res.status(429).json({error:'Limite de 5 leituras de URL por hora. Tente mais tarde.'});
+ hits.push(now);urlReads.set(key,hits);
+ if(urlReads.size>2000)urlReads.clear();
+ next();
+}
+app.post('/api/url/extract',urlReadLimit,async(req,res)=>{
  const raw=String(req.body?.url||'').trim();
  let u;try{u=new URL(raw);if(u.protocol!=='https:'||u.username||u.password)throw Error();}catch{return res.status(400).json({error:'Insira uma URL HTTPS válida.'});}
  const host=u.hostname.toLowerCase();
