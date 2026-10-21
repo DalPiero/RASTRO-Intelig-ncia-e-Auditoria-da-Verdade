@@ -6,17 +6,31 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const MAX_UPLOAD = 800 * 1024 * 1024; // adjust for your hosting limits
+const MAX_UPLOAD = 80 * 1024 * 1024; // proteção contra arquivos muito grandes em memória
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({apiKey:process.env.OPENAI_API_KEY}) : null;
 const upload = multer({storage:multer.memoryStorage(), limits:{fileSize:MAX_UPLOAD,files:1}});
 app.disable('x-powered-by');
 app.use(express.json({limit:'12mb'}));
 app.use(express.static(path.join(process.cwd(),'public')));
-app.get('/api/health',(_req,res)=>res.json({ok:true,configured:!!openai,ffmpegRequired:true}));
+const recent = new Map();
+function protect(req,res,next){
+ const expected = process.env.RASTRO_ACCESS_TOKEN || '';
+ if(expected.length < 24) return res.status(503).json({error:'Acesso privado indisponível. Configure RASTRO_ACCESS_TOKEN com pelo menos 24 caracteres no Render.'});
+ const got = req.get('X-RASTRO-TOKEN') || '';
+ const x=Buffer.from(got),y=Buffer.from(expected);
+ if(x.length!==y.length || !timingSafeEqual(x,y)) return res.status(401).json({error:'Código de acesso inválido. Consulte o administrador do RASTRO.'});
+ const key=req.ip||'local',now=Date.now();
+ const times=(recent.get(key)||[]).filter(t=>now-t<3600000);
+ if(times.length>=10)return res.status(429).json({error:'Limite temporário: máximo de 10 operações por hora neste servidor.'});
+ times.push(now);recent.set(key,times);
+ if(recent.size>1000)recent.clear();
+ next();
+}
+app.get('/api/health',(_req,res)=>res.json({ok:true,configured:!!openai,protected:!!(process.env.RASTRO_ACCESS_TOKEN||'').length,ffmpegRequired:true}));
 const topics = [
 'Mentira comprovada (exige prova de intenção)','Falsidade factual','Afirmação enganosa','Meia-verdade',
 'Fora de contexto','Omissão relevante','Número impreciso','Generalização indevida','Falácia lógica',
@@ -26,7 +40,7 @@ const topics = [
 function fail(res,e){ console.error(e);res.status(500).json({error:'Falha no processamento. Confira a chave, FFmpeg, limites ou registros do servidor.'}); }
 function runFFmpeg(args){return new Promise((resolve,reject)=>{ const p=spawn(process.env.FFMPEG_BIN||'ffmpeg',args,{stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>{err+=d.toString().slice(-1000)});p.on('error',reject);p.on('close',code=>code===0?resolve():reject(new Error('FFmpeg: '+err.slice(-400))));});}
 function stamp(s){let t=Math.max(0,Number(s)||0);return `${String(Math.floor(t/3600)).padStart(2,'0')}:${String(Math.floor(t%3600/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`}
-app.post('/api/transcribe',upload.single('media'),async(req,res)=>{
+app.post('/api/transcribe',protect,upload.single('media'),async(req,res)=>{
  if(!openai)return res.status(503).json({error:'Configure OPENAI_API_KEY no servidor.'});
  if(!req.file)return res.status(400).json({error:'Selecione um áudio ou vídeo.'});
  if(!/^(audio|video)\//.test(req.file.mimetype))return res.status(415).json({error:'Formato de mídia inválido.'});
@@ -63,7 +77,7 @@ app.post('/api/transcribe',upload.single('media'),async(req,res)=>{
   res.json({segments:all,text:all.map(s=>`[${stamp(s.start)}] ${s.speaker}: ${s.text}`).join('\n'),note:'Identificadores de falantes são locais a cada trecho; não há reconhecimento de identidade entre trechos.'});
  }catch(e){fail(res,e)}finally{await rm(dir,{recursive:true,force:true}).catch(()=>{})}
 });
-app.post('/api/audit',async(req,res)=>{
+app.post('/api/audit',protect,async(req,res)=>{
  if(!openai)return res.status(503).json({error:'Configure OPENAI_API_KEY no servidor.'});
  const {text,selected,source}=req.body||{};
  if(typeof text!=='string'||!text.trim())return res.status(400).json({error:'Forneça texto ou transcrição.'});
