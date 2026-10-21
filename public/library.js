@@ -14,8 +14,14 @@ cover.setAttribute('role','img');cover.setAttribute('aria-label','Capa tipográf
 el.append(cover,make('h3','',b[0]),meta,desc,link(publisher+b[2],'Consultar edição na editora ↗'));return el
 }
 const access={preco:['Programa Você Faz o Preço','https://bit.ly/Voc%C3%AAfazoPre%C3%A7o','Consulte os títulos disponíveis no programa externo.'],livros:['Livros e promoções','https://bit.ly/promo1026livros','Acesse o catálogo externo para conhecer as opções.'],artigos:['Artigos de @fadalprofdr','https://x.com/fadalprofdr','Artigos e publicações na rede X.']};
+let lastSearch='';let searchTimer;
 function render(){
 const term=norm(q.value.trim()),theme=t.value,program=p.value;root.replaceChildren();
+clearTimeout(searchTimer);
+if(['brasil','poesias','internet'].includes(term)&&term!==lastSearch){
+ lastSearch=term;
+ searchTimer=setTimeout(()=>fetch('/api/inventory/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({term})}).then(()=>window.RastroInventoryRefresh?.()).catch(()=>{}),1100);
+}
 if(program!=='todos'&&program!=='impresso'){
 const info=access[program],el=make('article','bib-card bib-external');el.append(make('h3','',info[0]),make('p','bib-desc',info[2]),link(info[1],'Abrir acervo ↗'));root.append(el);count.textContent='A lista de títulos deste programa é gerida no destino externo.';return;
 }
