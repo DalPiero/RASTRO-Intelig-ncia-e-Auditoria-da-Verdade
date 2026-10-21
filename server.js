@@ -4,6 +4,11 @@ import multer from 'multer';
 import OpenAI from 'openai';
 import pg from 'pg';
 import { spawn } from 'node:child_process';
+import ffmpegBinary from 'ffmpeg-static';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+import pdf from 'pdf-parse';
+import mammoth from 'mammoth';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -162,16 +167,16 @@ function fail(res,e){
  else if(code==='ENOENT')message='FFmpeg não encontrado no servidor.';
  res.status(Number.isInteger(code)&&code>=400&&code<500?code:500).json({error:message});
 }
-function runFFmpeg(args){return new Promise((resolve,reject)=>{ const p=spawn(process.env.FFMPEG_BIN||'ffmpeg',args,{stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>{err+=d.toString().slice(-1000)});p.on('error',reject);p.on('close',code=>code===0?resolve():reject(new Error('FFmpeg: '+err.slice(-400))));});}
+function runFFmpeg(args){return new Promise((resolve,reject)=>{ const p=spawn(process.env.FFMPEG_BIN||ffmpegBinary||'ffmpeg',args,{stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>{err+=d.toString().slice(-1000)});p.on('error',reject);p.on('close',code=>code===0?resolve():reject(new Error('FFmpeg: '+err.slice(-400))));});}
 function stamp(s){let t=Math.max(0,Number(s)||0);return `${String(Math.floor(t/3600)).padStart(2,'0')}:${String(Math.floor(t%3600/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`}
 app.post('/api/transcribe',protect,upload.single('media'),async(req,res)=>{
  if(!openai)return res.status(503).json({error:'Configure OPENAI_API_KEY no servidor.'});
  if(!req.file)return res.status(400).json({error:'Selecione um áudio ou vídeo.'});
- if(!/^(audio|video)\//.test(req.file.mimetype))return res.status(415).json({error:'Formato de mídia inválido.'});
+ if(!(/^(audio|video)\//.test(req.file.mimetype)||/\.(mp3|wav|m4a|ogg|opus|flac|aac|mp4|mov|mkv|webm|mpeg|mpg)$/i.test(req.file.originalname)))return res.status(415).json({error:'Formato de mídia inválido.'});
  const dir=await mkdtemp(path.join(tmpdir(),'rastro-'));const src=path.join(dir,'media.bin');
  try{
   await writeFile(src,req.file.buffer);
-  const durationOutput=path.join(dir,'duration.txt'); // use ffprobe via ffmpeg log instead of hard dependency
+  // Verifica se FFmpeg consegue extrair uma faixa de áudio.
   // Convert to mono 16k mp3. Split in 9 minute files; avoid API request size overrun.
   const pattern=path.join(dir,'part_%04d.mp3');
   await runFFmpeg(['-y','-i',src,'-vn','-ac','1','-ar','16000','-b:a','32k','-f','segment','-segment_time','540','-reset_timestamps','1',pattern]);
@@ -185,12 +190,13 @@ app.post('/api/transcribe',protect,upload.single('media'),async(req,res)=>{
    const size=(await stat(filePath)).size;
    if(size>24*1024*1024)throw new Error('Trecho acima do limite da API');
    const {createReadStream}=await import('node:fs');
-   const response=await openai.audio.transcriptions.create({
-    file:createReadStream(filePath),model:'gpt-4o-transcribe-diarize',
-    response_format:'diarized_json',chunking_strategy:'auto'
-   });
+   let response;
+   try{response=await openai.audio.transcriptions.create({file:createReadStream(filePath),model:'gpt-4o-transcribe-diarize',response_format:'diarized_json',chunking_strategy:'auto'});}catch(firstError){
+     console.warn('Diarização não disponível, tentando transcrição simples:',firstError.message);
+     response=await openai.audio.transcriptions.create({file:createReadStream(filePath),model:'gpt-4o-transcribe',response_format:'json'});
+   }
    const chunkStart=i*540;
-   for(const seg of (response.segments||[]))all.push({
+   for(const seg of (response.segments?.length?response.segments:[{start:0,end:540,speaker:'Voz sem identificação',text:response.text||''}]))all.push({
      start:Math.round((Number(seg.start||0)+chunkStart)*100)/100,
      end:Math.round((Number(seg.end||0)+chunkStart)*100)/100,
      speaker:`Trecho ${i+1} · ${seg.speaker||'Voz não identificada'}`,
@@ -201,6 +207,56 @@ app.post('/api/transcribe',protect,upload.single('media'),async(req,res)=>{
   res.json({segments:all,text:all.map(s=>`[${stamp(s.start)}] ${s.speaker}: ${s.text}`).join('\n'),note:'Identificadores de falantes são locais a cada trecho; não há reconhecimento de identidade entre trechos.'});
  }catch(e){fail(res,e)}finally{await rm(dir,{recursive:true,force:true}).catch(()=>{})}
 });
+
+const textUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:12*1024*1024,files:1}});
+function plainHTML(html){
+ return html.replace(/<(script|style|svg|noscript|nav|footer|header)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,' ')
+ .replace(/<[^>]*>/g,' ').replace(/&nbsp;|&#160;/gi,' ').replace(/&amp;/gi,'&')
+ .replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/\s+/g,' ').trim().slice(0,200000);
+}
+function publicIP(ip){
+ if(!ip)return false;
+ if(ip.includes(':')){const s=ip.toLowerCase();return !(s==='::1'||s==='::'||s.startsWith('fc')||s.startsWith('fd')||s.startsWith('fe8')||s.startsWith('fe9')||s.startsWith('fea')||s.startsWith('feb')||s.startsWith('::ffff:'));}
+ const v=ip.split('.').map(Number);
+ return v.length===4&&v.every(n=>n>=0&&n<=255)&&!(v[0]===0||v[0]===10||v[0]===127||v[0]>=224||(v[0]===100&&v[1]>=64&&v[1]<=127)||(v[0]===169&&v[1]===254)||(v[0]===172&&v[1]>=16&&v[1]<=31)||(v[0]===192&&v[1]===168)||(v[0]===192&&v[1]===0)||(v[0]===198&&v[1]>=18&&v[1]<=19));
+}
+app.post('/api/extract-file',protect,textUpload.single('document'),async(req,res)=>{
+ try{
+  if(!req.file)return res.status(400).json({error:'Selecione um arquivo.'});
+  const ext=path.extname(req.file.originalname||'').toLowerCase();
+  let content='';
+  if(['.txt','.srt','.vtt','.md','.csv','.json'].includes(ext))content=req.file.buffer.toString('utf8');
+  else if(ext==='.pdf'){const result=await pdf(req.file.buffer);content=result.text||'';}
+  else if(ext==='.docx'){const result=await mammoth.extractRawText({buffer:req.file.buffer});content=result.value||'';}
+  else return res.status(415).json({error:'Arquivo não suportado para extração textual. Use PDF, DOCX, TXT, SRT, VTT, MD, CSV ou JSON. Áudio e vídeo usam Transcrever mídia.'});
+  if(!content.trim())return res.status(422).json({error:'Nenhum texto extraído. PDFs digitalizados exigem OCR, que ainda não está implementado.'});
+  res.json({text:content.slice(0,200000),truncated:content.length>200000,filename:req.file.originalname});
+ }catch(e){console.error('EXTRACT FILE:',e.message);res.status(422).json({error:'Não foi possível ler o documento. Confira se o arquivo está íntegro e não está protegido.'});}
+});
+app.post('/api/extract-url',protect,async(req,res)=>{
+ try{
+  const raw=String(req.body?.url||'');if(raw.length>2048)return res.status(400).json({error:'URL muito longa.'});
+  const url=new URL(raw);
+  if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.port&& !['80','443'].includes(url.port))throw Error('Use uma URL pública HTTP(S).');
+  const host=url.hostname.toLowerCase();if(host==='localhost'||host.endsWith('.local')||host.endsWith('.internal'))throw Error('Endereço não permitido.');
+  const addresses=await lookup(host,{all:true,verbatim:true});
+  if(!addresses.length||addresses.some(a=>!publicIP(a.address)))throw Error('Endereço não público.');
+  const response=await fetch(url,{redirect:'manual',signal:AbortSignal.timeout(15000),headers:{'User-Agent':'RASTRO/2.1 (+auditoria documental)','Accept':'text/html,text/plain'}});
+  if(response.status>=300&&response.status<400)return res.status(422).json({error:'A página redirecionou para outro endereço. Cole o destino final público; redirecionamentos não são seguidos por segurança.'});
+  if(!response.ok)return res.status(422).json({error:'A origem não permitiu leitura automática (HTTP '+response.status+'). Para redes sociais, envie o arquivo autorizado ou a transcrição.'});
+  const type=response.headers.get('content-type')||'';
+  if(!/text\/html|text\/plain/.test(type))return res.status(415).json({error:'O link não contém texto HTML acessível. Envie o arquivo local.'});
+  const len=Number(response.headers.get('content-length')||0);
+  if(len>2_000_000)return res.status(413).json({error:'Página muito grande.'});
+  const reader=response.body.getReader();let chunks=[],size=0;
+  while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>2_000_000){await reader.cancel();return res.status(413).json({error:'Página muito grande.'});}chunks.push(value);}
+  const content=Buffer.concat(chunks).toString('utf8');
+  const extracted=type.includes('html')?plainHTML(content):content.slice(0,200000);
+  if(extracted.length<40)return res.status(422).json({error:'Página sem texto recuperável. Sites que carregam conteúdo por JavaScript ou exigem login não permitem extração direta.'});
+  res.json({text:extracted,url:url.href,kind:'webpage',note:'Conteúdo textual público da página; não representa a transcrição do vídeo vinculado.'});
+ }catch(e){res.status(422).json({error:'Não foi possível extrair a URL: '+String(e.message||'falha de acesso').slice(0,250)});}
+});
+
 app.post('/api/audit',protect,async(req,res)=>{
  if(!openai)return res.status(503).json({error:'Configure OPENAI_API_KEY no servidor.'});
  const {text,selected,source}=req.body||{};
