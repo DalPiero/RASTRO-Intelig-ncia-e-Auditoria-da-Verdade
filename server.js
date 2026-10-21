@@ -42,7 +42,17 @@ function fail(res,e){
  console.error('RASTRO API:',{status:code,type:e?.type,message:e?.message});
  let message='Falha na API. Consulte os Logs do Render.';
  if(code===401)message='Chave OpenAI inválida ou revogada. Confira OPENAI_API_KEY no Render.';
- else if(code===429)message='Limite, cota ou créditos da OpenAI insuficientes. Verifique o faturamento da API.';
+ else if(code===429){
+ const raw=String(e?.message||'').toLowerCase();
+ const subtype=String(e?.code||e?.type||'').toLowerCase();
+ if(raw.includes('insufficient_quota')||subtype.includes('insufficient_quota')||raw.includes('quota')){
+   message='A API informou insufficient_quota. Confira se os créditos pertencem ao mesmo projeto/organização da chave usada pelo RASTRO.';
+ }else if(raw.includes('rate limit')||raw.includes('rate_limit')||subtype.includes('rate_limit')){
+   message='A API informou rate_limit_exceeded. Aguarde e confira os limites de requisições/tokens do projeto.';
+ }else{
+   message='A API retornou HTTP 429. Abra Logs no Render e procure RASTRO API para identificar se é cota ou limite temporário.';
+ }
+}
  else if(code===404)message='Modelo indisponível para esta conta ou projeto. Confira a permissão de modelos.';
  else if(code===403)message='O projeto OpenAI não tem permissão para esta operação.';
  else if(code===400)message='Solicitação rejeitada pela API. Consulte os Logs do Render para detalhes.';
