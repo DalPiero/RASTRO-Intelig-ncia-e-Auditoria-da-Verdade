@@ -2,16 +2,16 @@
 (() => {
 const host=document.querySelector('section.report');if(!host)return;
 const s=document.createElement('section');s.className='card';s.style.marginBottom='30px';
-s.innerHTML='<div class="step">04B / RELATÓRIO VISUAL</div><h2>Exportar resultados em imagem</h2><p class="desc">O RASTRO extrai os vereditos identificados no laudo e preenche os totais. Revise os números antes de exportar; alegações sem veredito reconhecido ficam como inconclusivas.</p><div id="rastro-chart-inputs"></div><div class="buttons"><label>Tipo <select id="rastro-chart-type"><option value="bar">Barras</option><option value="circle">Circular</option></select></label><button class="primary" id="rastro-chart-render">Gerar prévia</button><button class="quiet" id="rastro-chart-save" disabled>↓ Baixar PNG</button></div><p id="rastro-chart-message" role="status">Preencha os valores verificados.</p><canvas id="rastro-chart-canvas" width="1600" height="900" style="width:100%;height:auto;border-radius:14px"></canvas>';
+s.innerHTML='<div class="step">04B / RELATÓRIO VISUAL</div><h2>Exportar resultados em imagem</h2><p class="desc">Os números são extraídos exclusivamente das alegações do relatório atual. Sem laudo válido, o gráfico fica bloqueado. Confira os vereditos antes de divulgar.</p><div id="rastro-chart-inputs"></div><div class="buttons"><label>Tipo <select id="rastro-chart-type"><option value="bar">Barras</option><option value="circle">Circular</option></select></label><button class="primary" id="rastro-chart-render">Gerar prévia</button><button class="quiet" id="rastro-chart-save" disabled>↓ Baixar PNG</button></div><p id="rastro-chart-message" role="status">Preencha os valores verificados.</p><canvas id="rastro-chart-canvas" width="1600" height="900" style="width:100%;height:auto;border-radius:14px"></canvas>';
 host.insertAdjacentElement('afterend',s);
 const st=document.createElement('style');st.textContent='#rastro-chart-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}#rastro-chart-inputs input,#rastro-chart-type{display:block;width:100%;background:#081626;border:1px solid #56738d;border-radius:9px;color:white;padding:11px;margin-top:7px}@media(max-width:650px){#rastro-chart-inputs{grid-template-columns:1fr}}';document.head.append(st);
 const labels=['Verdadeiro / contextualizado','Falso / refutado','Enganoso / fora de contexto','Inconclusivo / sem prova'];
 const colors=['#70dccb','#fb7585','#ffd078','#9cafff'];
 const inputs=document.getElementById('rastro-chart-inputs');
-for(let i=0;i<labels.length;i++){const label=document.createElement('label');label.textContent=labels[i];const el=document.createElement('input');el.type='number';el.min='0';el.max='1000000';el.step='1';el.value='0';label.append(el);inputs.append(label);}
+for(let i=0;i<labels.length;i++){const label=document.createElement('label');label.textContent=labels[i];const el=document.createElement('input');el.type='number';el.min='0';el.max='1000000';el.step='1';el.value='0';el.readOnly=true;el.setAttribute('aria-label',labels[i]);label.append(el);inputs.append(label);}
 const cv=document.getElementById('rastro-chart-canvas'),ctx=cv.getContext('2d');
 const btn=document.getElementById('rastro-chart-save'),msg=document.getElementById('rastro-chart-message');
-const valueEls=[...inputs.querySelectorAll('input')];let ready=false;
+const valueEls=[...inputs.querySelectorAll('input')];let ready=false;let validatedReport=false;document.getElementById('rastro-chart-render').disabled=true;
 function invalidate(){ready=false;btn.disabled=true;msg.textContent='Valores alterados. Gere uma nova prévia.';}
 valueEls.forEach(el=>el.addEventListener('input',invalidate));
 document.getElementById('rastro-chart-type').addEventListener('change',invalidate);
@@ -71,18 +71,20 @@ document.getElementById('rastro-evidence-csv').addEventListener('click',()=>{
 });
 
 let lastParsed='';
+function resetChart(message){validatedReport=false;ready=false;btn.disabled=true;document.getElementById('rastro-chart-render').disabled=true;valueEls.forEach(el=>el.value='0');ctx.clearRect(0,0,cv.width,cv.height);evidenceRows=[];document.getElementById('rastro-evidence-table').replaceChildren();msg.textContent=message;}
 function loadFromReport(){
  const text=document.getElementById('report')?.textContent||'';
- if(!text.trim()||text.includes('O relatório aparecerá aqui'))return;
+ if(!text.trim()||text.includes('O relatório aparecerá aqui')){resetChart('Aguardando relatório válido para calcular as contagens.');lastParsed='';return;}
  if(text===lastParsed)return;
  const sections=text.split(/(?:\*\*)?Alega(?:ç|c)(?:ã|a)o\s+\d+\s*:/i).slice(1);
- if(!sections.length){msg.textContent='Não encontrei alegações numeradas no relatório. Preencha os valores manualmente.';return;}
+ if(!sections.length){resetChart('Nenhuma alegação numerada encontrada; exportação bloqueada.');lastParsed=text;return;}
  const totals=[0,0,0,0];
  for(const section of sections){
   const match=section.match(/(?:\*\*)?\s*[-•]?\s*(?:\*\*)?\s*Veredito\s+provis[oó]rio\s*:\s*(?:\*\*)?\s*([^\n\r]+)/i);
   totals[classify(match?.[1])]++;
  }
  valueEls.forEach((el,i)=>el.value=String(totals[i]));
+ validatedReport=true;document.getElementById('rastro-chart-render').disabled=false;
  lastParsed=text;render();showEvidence(text);
  msg.textContent='Leitura automática: '+sections.length+' alegações. Confira a classificação no laudo antes de divulgar.';
 }
@@ -90,6 +92,7 @@ const reportNode=document.getElementById('report');
 if(reportNode)new MutationObserver(loadFromReport).observe(reportNode,{childList:true,characterData:true,subtree:true});
 loadFromReport();
 function render(){
+ if(!validatedReport){resetChart('É necessário concluir uma auditoria válida antes de exportar.');return;}
  const raw=valueEls.map(el=>el.value);const n=raw.map(Number);
  if(raw.some(x=>!x.trim())||n.some(x=>!Number.isSafeInteger(x)||x<0||x>1000000)){invalidate();msg.textContent='Digite inteiros de 0 a 1.000.000.';return;}
  const total=n.reduce((a,b)=>a+b,0);
@@ -97,7 +100,7 @@ function render(){
  const grad=ctx.createLinearGradient(0,0,1600,900);grad.addColorStop(0,'#1c3c5a');grad.addColorStop(1,'#071321');ctx.fillStyle=grad;ctx.fillRect(0,0,1600,900);
  drawText('RASTRO',80,110,70,'#ffd078',800);
  drawText('SÍNTESE VISUAL DE ALEGAÇÕES',80,178,42,'#ffffff',700);
- drawText('Dados inseridos e conferidos pelo operador',80,230,28,'#bacddd');
+ drawText('Contagens extraídas automaticamente do relatório atual',80,230,28,'#bacddd');
  drawText('Total classificado: '+total,80,303,36,'#ffffff',700);
  if(document.getElementById('rastro-chart-type').value==='bar'){
    const max=Math.max(...n);
@@ -114,5 +117,5 @@ function render(){
  ready=true;btn.disabled=false;msg.textContent='Prévia pronta. Total: '+total+'. Confira antes de divulgar.';
 }
 document.getElementById('rastro-chart-render').addEventListener('click',render);
-btn.addEventListener('click',()=>{if(!ready)return;cv.toBlob(blob=>{if(!blob){msg.textContent='Falha ao gerar o PNG.';return;}const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download='RASTRO_Resultados_'+new Date().toISOString().slice(0,10)+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);msg.textContent='PNG 1600 × 900 gerado.';},'image/png');});
+btn.addEventListener('click',()=>{if(!ready||!validatedReport)return;cv.toBlob(blob=>{if(!blob){msg.textContent='Falha ao gerar o PNG.';return;}const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download='RASTRO_Resultados_'+new Date().toISOString().slice(0,10)+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);msg.textContent='PNG 1600 × 900 gerado.';},'image/png');});
 })();
