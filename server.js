@@ -76,7 +76,7 @@ async function protect(req,res,next){
  if(!mode)return res.status(401).json({error:'Código inválido ou expirado. Escolha um acesso gratuito disponível ou um passe de 12 horas.'});
  const key=mode==='free'?'free:'+req.ip:sig(token),now=Date.now();
  const times=(recent.get(key)||[]).filter(t=>now-t<3600000);
- if(times.length>=10)return res.status(429).json({error:'Limite de proteção: máximo de 10 operações por hora por acesso.'});
+ if(mode!=='admin'&&times.length>=10)return res.status(429).json({error:'Limite de proteção: máximo de 10 operações por hora por acesso.'});
  times.push(now);recent.set(key,times);if(recent.size>1000)recent.clear();
  req.accessMode=mode;
  next();
