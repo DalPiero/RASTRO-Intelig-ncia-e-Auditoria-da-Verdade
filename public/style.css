@@ -12,3 +12,5 @@
 #acesso-rastro{margin:26px 0}.adminAccess{border-top:1px solid #405974;margin-top:18px;padding-top:15px}.adminAccess summary{cursor:pointer;color:var(--gold);font-weight:700}.adminAccess input{display:block;width:100%;max-width:500px;margin:10px 0 14px;background:#091728;color:white;padding:12px;border:1px solid #49647d;border-radius:10px}
 
 .report-source{margin:12px 0 18px;padding:18px;border:1px solid #a88a4c;background:#172b42;border-radius:12px;display:grid;gap:7px;overflow-wrap:anywhere}.report-source strong{color:var(--gold);font-size:15px}.report-source small{color:var(--muted)}.report-source a{color:var(--aqua)}
+
+.academic-alert{border:3px solid #e6ba5e;background:#3d2a18;padding:21px;border-radius:15px;margin:22px 0;color:#fff3dc}.academic-alert h3{color:#ffe09a;font-size:1.25rem;line-height:1.4}.academic-alert p{line-height:1.65}.academic-alert strong{color:#fff}#financeOutput{overflow-x:auto}#financeOutput th{text-align:left}#financeOutput table{border-collapse:collapse}#financeOutput tr{border-bottom:1px solid #455c6e}
