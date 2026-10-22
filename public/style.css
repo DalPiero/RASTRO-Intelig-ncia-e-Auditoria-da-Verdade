@@ -10,3 +10,5 @@
 .inventory-table{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:19px 0}.inventory-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #375471;border-radius:9px;background:#0c1b2e;padding:10px;font-size:12px}.inventory-row strong{font-size:17px;color:var(--gold)}@media(max-width:700px){.inventory-table{grid-template-columns:1fr}}
 
 #acesso-rastro{margin:26px 0}.adminAccess{border-top:1px solid #405974;margin-top:18px;padding-top:15px}.adminAccess summary{cursor:pointer;color:var(--gold);font-weight:700}.adminAccess input{display:block;width:100%;max-width:500px;margin:10px 0 14px;background:#091728;color:white;padding:12px;border:1px solid #49647d;border-radius:10px}
+
+.report-source{margin:12px 0 18px;padding:18px;border:1px solid #a88a4c;background:#172b42;border-radius:12px;display:grid;gap:7px;overflow-wrap:anywhere}.report-source strong{color:var(--gold);font-size:15px}.report-source small{color:var(--muted)}.report-source a{color:var(--aqua)}
