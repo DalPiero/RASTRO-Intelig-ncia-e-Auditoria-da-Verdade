@@ -81,6 +81,59 @@ async function protect(req,res,next){
  req.accessMode=mode;
  next();
 }
+// Créditos acadêmicos: sem expiração temporal; apenas consumo das palavras autorizadas.
+let academicSchemaReady=null;
+async function academicSchema(){
+ if(!db)throw Error('Banco indisponível');
+ if(!academicSchemaReady)academicSchemaReady=db.query(`CREATE TABLE IF NOT EXISTS rastro_academic_accounts (
+ token_hash TEXT PRIMARY KEY, remaining_words INTEGER NOT NULL CHECK(remaining_words>=0),
+ purchased_words INTEGER NOT NULL DEFAULT 450000, reference TEXT NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ )`).catch(e=>{academicSchemaReady=null;throw e});
+ return academicSchemaReady;
+}
+const academicWords=t=>(String(t).trim().match(/\\S+/gu)||[]).length;
+app.post('/api/admin/academic/issue',async(req,res)=>{
+ if(!adminOK(req.get('X-RASTRO-ADMIN')))return res.status(403).json({error:'Administrador não autenticado.'});
+ const reference=String(req.body?.reference||'').trim();
+ if(reference.length<5||reference.length>120)return res.status(400).json({error:'Informe a referência do pagamento verificado.'});
+ try{
+  await academicSchema();
+  const code='ra-acad_'+randomBytes(24).toString('base64url');
+  await db.query('INSERT INTO rastro_academic_accounts(token_hash,remaining_words,reference) VALUES($1,450000,$2)',[sig(code),reference]);
+  res.json({code,remainingWords:450000,renewal:'opcional',expiresAt:null});
+ }catch(e){fail(res,e)}
+});
+app.get('/api/academic/balance',async(req,res)=>{
+ const token=req.get('X-RASTRO-ACADEMIC')||'';
+ if(adminOK(token))return res.json({mode:'admin',unlimited:true,remainingWords:null});
+ try{await academicSchema();const r=await db.query('SELECT remaining_words,purchased_words FROM rastro_academic_accounts WHERE token_hash=$1',[sig(token)]);if(!r.rowCount)return res.status(401).json({error:'Código acadêmico inválido.'});res.json({mode:'academic',remainingWords:r.rows[0].remaining_words,purchasedWords:r.rows[0].purchased_words,expiresAt:null})}catch(e){fail(res,e)}
+});
+app.post('/api/academic/analyze',async(req,res)=>{
+ const token=req.get('X-RASTRO-ACADEMIC')||'';
+ const isAdmin=adminOK(token);
+ const text=String(req.body?.text||'');
+ const count=academicWords(text);
+ if(!count||text.length>22000)return res.status(400).json({error:'Envie lote de até 22.000 caracteres.'});
+ if(!openai)return res.status(503).json({error:'API OpenAI não configurada.'});
+ let reserved=false;
+ try{
+  if(!isAdmin){
+   await academicSchema();
+   const r=await db.query('UPDATE rastro_academic_accounts SET remaining_words=remaining_words-$1 WHERE token_hash=$2 AND remaining_words >= $1 RETURNING remaining_words',[count,sig(token)]);
+   if(!r.rowCount)return res.status(402).json({error:'Código inválido ou saldo insuficiente para este lote.'});
+   reserved=true;
+  }
+  const source=String(req.body?.source||'Documento acadêmico').slice(0,300);
+  const section=String(req.body?.section||'').slice(0,140);
+  const prompt='Você é um pesquisador documental. Examine exclusivamente o material enviado, identificando alegações, hipóteses, citações e referências. Não confunda alegações do autor com fatos comprovados. Não invente referências ou páginas. Use marcadores de página/seção quando presentes. Retorne português brasileiro: Resumo analítico; Alegações e evidências; Metodologia e limitações; Referências mencionadas (sem inventar). Documento: '+source+'; trecho: '+section+'\\n'+text;
+  const response=await openai.responses.create({model:'gpt-4.1-mini',input:prompt,max_output_tokens:2300});
+  res.json({report:response.output_text||'',consumedWords:count,section,remainingWords:isAdmin?null:undefined});
+ }catch(e){
+  if(reserved){try{await db.query('UPDATE rastro_academic_accounts SET remaining_words=remaining_words+$1 WHERE token_hash=$2',[count,sig(token)])}catch(err){console.error('ACADEMIC REFUND:',err.code||err.message)}}
+  fail(res,e);
+ }
+});
 app.post('/api/admin/issue-pass',async(req,res)=>{
  if(!adminOK(req.get('X-RASTRO-ADMIN')))return res.status(403).json({error:'Acesso administrativo negado.'});
  if(!db)return res.status(503).json({error:'Configure DATABASE_URL antes de emitir passes.'});
