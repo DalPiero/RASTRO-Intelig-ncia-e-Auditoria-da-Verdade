@@ -119,6 +119,6 @@ $('academicLedger').addEventListener('click',async()=>{
  }catch(e){status('Extrato indisponível: '+e.message)}
 });
 $('academicLedgerCsv').addEventListener('click',async()=>{
- try{const d=await fetchLedger();const fields=['created_at','request_id','event','words','status','balance_after','source_name','section_name'];const quote=x=>'"'+String(x??'').replace(/"/g,'""')+'"';const lines=[fields.join(';'),...d.events.map(e=>fields.map(k=>quote(e[k])).join(';'))];const blob=new Blob(['\\ufeff'+lines.join('\\r\\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='RASTRO_Extrato_Creditos.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status('Extrato CSV gerado.')}catch(e){status(e.message)}
+ try{const d=await fetchLedger();const fields=['created_at','request_id','event','words','status','balance_after','source_name','section_name'];const quote=x=>'"'+String(x??'').replace(/"/g,'""')+'"';const lines=[fields.join(';'),...d.events.map(e=>fields.map(k=>quote(e[k])).join(';'))];const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='RASTRO_Extrato_Creditos.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status('Extrato CSV gerado.')}catch(e){status(e.message)}
 });
 })();
