@@ -214,6 +214,40 @@ app.post('/api/academic/analyze',async(req,res)=>{
   fail(res,e);
  }
 });
+
+let vouchersReady=null;
+async function vouchersSchema(){
+ if(!db)throw Error('PostgreSQL indisponível');
+ if(!vouchersReady)vouchersReady=db.query(`CREATE TABLE IF NOT EXISTS rastro_voucher_requests (
+ id BIGSERIAL PRIMARY KEY, applicant_name VARCHAR(160) NOT NULL,
+ email VARCHAR(240) NOT NULL, category VARCHAR(32) NOT NULL,
+ organization VARCHAR(200), purpose TEXT NOT NULL,
+ status VARCHAR(20) NOT NULL DEFAULT 'pending',
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ )`).catch(e=>{vouchersReady=null;throw e});
+ await vouchersReady;
+}
+const voucherRate=new Map();
+app.post('/api/vouchers/request',async(req,res)=>{
+ const name=String(req.body?.name||'').trim(),email=String(req.body?.email||'').trim(),
+ category=String(req.body?.category||''),organization=String(req.body?.organization||'').trim(),
+ purpose=String(req.body?.purpose||'').trim(),website=String(req.body?.website||'').trim();
+ if(website)return res.status(400).json({error:'Solicitação inválida.'});
+ if(name.length<3||name.length>160||!/^\S+@\S+\.\S+$/.test(email)||email.length>240||!['jornalista','autoridade','academico','cientista'].includes(category)||organization.length>200||purpose.length<15||purpose.length>2000)
+  return res.status(400).json({error:'Preencha corretamente os campos obrigatórios.'});
+ const ip=String(req.ip||''),now=Date.now(),times=(voucherRate.get(ip)||[]).filter(t=>now-t<86400000);
+ if(times.length>=3)return res.status(429).json({error:'Limite de três solicitações por dia. Entre em contato posteriormente.'});
+ try{
+  await vouchersSchema();
+  const r=await db.query('INSERT INTO rastro_voucher_requests(applicant_name,email,category,organization,purpose) VALUES($1,$2,$3,$4,$5) RETURNING id',[name,email.toLowerCase(),category,organization,purpose]);
+  voucherRate.set(ip,[...times,now]);if(voucherRate.size>10000)voucherRate.clear();
+  res.status(201).json({received:true,requestId:r.rows[0].id,message:'Solicitação registrada. As regras dos vouchers serão anunciadas em breve; o envio não garante aprovação.'});
+ }catch(e){console.error('VOUCHER REQUEST:',e.code||e.message);res.status(503).json({error:'Não foi possível registrar a solicitação. Tente novamente.'})}
+});
+app.get('/api/admin/vouchers',async(req,res)=>{
+ if(!adminOK(req.get('X-RASTRO-ADMIN')))return res.status(403).json({error:'Acesso administrativo negado.'});
+ try{await vouchersSchema();const r=await db.query('SELECT id,applicant_name,email,category,organization,purpose,status,created_at FROM rastro_voucher_requests ORDER BY id DESC LIMIT 300');res.json({requests:r.rows})}catch(e){fail(res,e)}
+});
 app.post('/api/admin/issue-pass',async(req,res)=>{
  if(!adminOK(req.get('X-RASTRO-ADMIN')))return res.status(403).json({error:'Acesso administrativo negado.'});
  if(!db)return res.status(503).json({error:'Configure DATABASE_URL antes de emitir passes.'});
