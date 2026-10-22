@@ -28,6 +28,6 @@ app.post('/mcp',async(req,res)=>{
  catch(e){console.error('MCP:',e?.message);if(!res.headersSent)res.status(500).json({error:'Falha na conexão MCP'})}
  finally{res.on('close',()=>{transport.close().catch(()=>{});server.close().catch(()=>{})})}
 });
-app.get('/mcp',(_req,res)=>res.status(405).set('Allow','POST').end();
-app.delete('/mcp',(_req,res)=>res.status(405).set('Allow','POST').end();
+app.get('/mcp',(_req,res)=>res.status(405).set('Allow','POST').end());
+app.delete('/mcp',(_req,res)=>res.status(405).set('Allow','POST').end());
 app.listen(PORT,'0.0.0.0',()=>console.log('RASTRO plugin listening on '+PORT));
