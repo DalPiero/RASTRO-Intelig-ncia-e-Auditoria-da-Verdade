@@ -84,15 +84,23 @@ async function protect(req,res,next){
 // Créditos acadêmicos: sem expiração temporal; apenas consumo das palavras autorizadas.
 let academicSchemaReady=null;
 async function academicSchema(){
- if(!db)throw Error('Banco indisponível');
- if(!academicSchemaReady)academicSchemaReady=db.query(`CREATE TABLE IF NOT EXISTS rastro_academic_accounts (
- token_hash TEXT PRIMARY KEY, remaining_words INTEGER NOT NULL CHECK(remaining_words>=0),
- purchased_words INTEGER NOT NULL DEFAULT 450000, reference TEXT NOT NULL,
- created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
- )`).catch(e=>{academicSchemaReady=null;throw e});
+ if(!db)throw Error('Banco de dados indisponível');
+ if(!academicSchemaReady)academicSchemaReady=(async()=>{
+  await db.query(`CREATE TABLE IF NOT EXISTS rastro_academic_accounts (
+   token_hash TEXT PRIMARY KEY, remaining_words INTEGER NOT NULL CHECK(remaining_words>=0),
+   purchased_words INTEGER NOT NULL DEFAULT 450000, reference TEXT NOT NULL,
+   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await db.query(`CREATE TABLE IF NOT EXISTS rastro_academic_ledger (
+   request_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL,
+   event TEXT NOT NULL, words INTEGER NOT NULL, source_name TEXT,
+   section_name TEXT, status TEXT NOT NULL, balance_after INTEGER,
+   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+ })().catch(e=>{academicSchemaReady=null;throw e});
  return academicSchemaReady;
 }
-const academicWords=t=>(String(t).trim().match(/\\S+/gu)||[]).length;
+const academicWords=t=>(String(t).trim().match(/\S+/gu)||[]).length;
 app.post('/api/admin/academic/issue',async(req,res)=>{
  if(!adminOK(req.get('X-RASTRO-ADMIN')))return res.status(403).json({error:'Administrador não autenticado.'});
  const reference=String(req.body?.reference||'').trim();
@@ -100,37 +108,76 @@ app.post('/api/admin/academic/issue',async(req,res)=>{
  try{
   await academicSchema();
   const code='ra-acad_'+randomBytes(24).toString('base64url');
-  await db.query('INSERT INTO rastro_academic_accounts(token_hash,remaining_words,reference) VALUES($1,450000,$2)',[sig(code),reference]);
+  const hash=sig(code),client=await db.connect();
+  try{
+   await client.query('BEGIN');
+   await client.query('INSERT INTO rastro_academic_accounts(token_hash,remaining_words,reference) VALUES($1,450000,$2)',[hash,reference]);
+   await client.query("INSERT INTO rastro_academic_ledger(request_id,token_hash,event,words,status,balance_after) VALUES($1,$2,'activation',450000,'completed',450000)",[randomUUID(),hash]);
+   await client.query('COMMIT');
+  }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   res.json({code,remainingWords:450000,renewal:'opcional',expiresAt:null});
  }catch(e){fail(res,e)}
 });
 app.get('/api/academic/balance',async(req,res)=>{
  const token=req.get('X-RASTRO-ACADEMIC')||'';
  if(adminOK(token))return res.json({mode:'admin',unlimited:true,remainingWords:null});
+ if(!token)return res.status(401).json({error:'Código acadêmico obrigatório.'});
  try{await academicSchema();const r=await db.query('SELECT remaining_words,purchased_words FROM rastro_academic_accounts WHERE token_hash=$1',[sig(token)]);if(!r.rowCount)return res.status(401).json({error:'Código acadêmico inválido.'});res.json({mode:'academic',remainingWords:r.rows[0].remaining_words,purchasedWords:r.rows[0].purchased_words,expiresAt:null})}catch(e){fail(res,e)}
 });
-app.post('/api/academic/analyze',async(req,res)=>{
+app.get('/api/academic/ledger',async(req,res)=>{
  const token=req.get('X-RASTRO-ACADEMIC')||'';
- const isAdmin=adminOK(token);
- const text=String(req.body?.text||'');
- const count=academicWords(text);
+ if(!token)return res.status(401).json({error:'Código acadêmico obrigatório.'});
+ if(adminOK(token))return res.status(400).json({error:'Informe o código do pacote para consultar seu extrato.'});
+ try{
+  await academicSchema();const hash=sig(token);
+  const acct=await db.query('SELECT remaining_words,purchased_words FROM rastro_academic_accounts WHERE token_hash=$1',[hash]);
+  if(!acct.rowCount)return res.status(401).json({error:'Código acadêmico inválido.'});
+  const history=await db.query('SELECT request_id,event,words,source_name,section_name,status,balance_after,created_at FROM rastro_academic_ledger WHERE token_hash=$1 ORDER BY created_at DESC LIMIT 500',[hash]);
+  res.json({remainingWords:acct.rows[0].remaining_words,purchasedWords:acct.rows[0].purchased_words,events:history.rows});
+ }catch(e){fail(res,e)}
+});
+app.post('/api/academic/analyze',async(req,res)=>{
+ const token=req.get('X-RASTRO-ACADEMIC')||'',isAdmin=adminOK(token);
+ const text=String(req.body?.text||''),count=academicWords(text);
+ const id=String(req.body?.requestId||'');
  if(!count||text.length>22000)return res.status(400).json({error:'Envie lote de até 22.000 caracteres.'});
+ if(!/^[a-zA-Z0-9_-]{12,90}$/.test(id))return res.status(400).json({error:'Identificador único do lote obrigatório.'});
  if(!openai)return res.status(503).json({error:'API OpenAI não configurada.'});
+ const source=String(req.body?.source||'Documento acadêmico').slice(0,300);
+ const section=String(req.body?.section||'').slice(0,140);
+ const hash=sig(token);
  let reserved=false;
  try{
   if(!isAdmin){
    await academicSchema();
-   const r=await db.query('UPDATE rastro_academic_accounts SET remaining_words=remaining_words-$1 WHERE token_hash=$2 AND remaining_words >= $1 RETURNING remaining_words',[count,sig(token)]);
-   if(!r.rowCount)return res.status(402).json({error:'Código inválido ou saldo insuficiente para este lote.'});
-   reserved=true;
+   const client=await db.connect();
+   try{
+    await client.query('BEGIN');
+    const existing=await client.query('SELECT status FROM rastro_academic_ledger WHERE request_id=$1',[id]);
+    if(existing.rowCount){await client.query('ROLLBACK');return res.status(409).json({error:'Este lote já foi solicitado. Verifique o extrato antes de reenviar.'})}
+    const debit=await client.query('UPDATE rastro_academic_accounts SET remaining_words=remaining_words-$1 WHERE token_hash=$2 AND remaining_words >= $1 RETURNING remaining_words',[count,hash]);
+    if(!debit.rowCount){await client.query('ROLLBACK');return res.status(402).json({error:'Código inválido ou saldo insuficiente.'})}
+    await client.query("INSERT INTO rastro_academic_ledger(request_id,token_hash,event,words,source_name,section_name,status,balance_after) VALUES($1,$2,'analysis',$3,$4,$5,'processing',$6)",[id,hash,count,source,section,debit.rows[0].remaining_words]);
+    await client.query('COMMIT');reserved=true;
+   }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
-  const source=String(req.body?.source||'Documento acadêmico').slice(0,300);
-  const section=String(req.body?.section||'').slice(0,140);
-  const prompt='Você é um pesquisador documental. Examine exclusivamente o material enviado, identificando alegações, hipóteses, citações e referências. Não confunda alegações do autor com fatos comprovados. Não invente referências ou páginas. Use marcadores de página/seção quando presentes. Retorne português brasileiro: Resumo analítico; Alegações e evidências; Metodologia e limitações; Referências mencionadas (sem inventar). Documento: '+source+'; trecho: '+section+'\\n'+text;
+  const prompt='Você é pesquisador documental. Examine o trecho sem inventar fatos, páginas ou referências. Separe hipóteses, alegações e evidências; indique metodologia, limites e referências expressas. Documento: '+source+'; seção: '+section+'\n'+text;
   const response=await openai.responses.create({model:'gpt-4.1-mini',input:prompt,max_output_tokens:2300});
-  res.json({report:response.output_text||'',consumedWords:count,section,remainingWords:isAdmin?null:undefined});
+  if(!response.output_text)throw Error('Modelo não retornou relatório.');
+  if(reserved)await db.query("UPDATE rastro_academic_ledger SET status='completed',updated_at=NOW() WHERE request_id=$1 AND token_hash=$2",[id,hash]);
+  const balance=reserved?(await db.query('SELECT remaining_words FROM rastro_academic_accounts WHERE token_hash=$1',[hash])).rows[0]?.remaining_words:null;
+  res.json({report:response.output_text,consumedWords:count,section,requestId:id,remainingWords:balance});
  }catch(e){
-  if(reserved){try{await db.query('UPDATE rastro_academic_accounts SET remaining_words=remaining_words+$1 WHERE token_hash=$2',[count,sig(token)])}catch(err){console.error('ACADEMIC REFUND:',err.code||err.message)}}
+  if(reserved){
+   try{
+    const client=await db.connect();try{
+     await client.query('BEGIN');
+     const row=await client.query("UPDATE rastro_academic_ledger SET status='refunded',updated_at=NOW() WHERE request_id=$1 AND token_hash=$2 AND status IN ('processing','completed') RETURNING words",[id,hash]);
+     if(row.rowCount)await client.query('UPDATE rastro_academic_accounts SET remaining_words=remaining_words+$1 WHERE token_hash=$2',[row.rows[0].words,hash]);
+     await client.query('COMMIT');
+    }catch(err){await client.query('ROLLBACK');throw err}finally{client.release()}
+   }catch(err){console.error('ACADEMIC CREDIT RECONCILIATION REQUIRED:',id,err.code||err.message)}
+  }
   fail(res,e);
  }
 });
