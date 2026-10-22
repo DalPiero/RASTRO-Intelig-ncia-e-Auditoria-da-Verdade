@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { timingSafeEqual, randomBytes, createHash } from 'node:crypto';
+import { timingSafeEqual, randomBytes, createHash, randomUUID } from 'node:crypto';
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -102,14 +102,20 @@ app.get('/api/access/status',async(req,res)=>{
 });
 app.get('/api/health',(_req,res)=>res.json({ok:true,configured:!!openai,protected:!!(process.env.RASTRO_ACCESS_TOKEN||'').length,paidPassReady:!!db,freeAvailable:!!db&&process.env.RASTRO_FREE_ENABLED==='true',ffmpegRequired:true}));
 
-const db=process.env.DATABASE_URL ? new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='disable'?false:{rejectUnauthorized:false},max:3}) : null;
+const db=process.env.DATABASE_URL ? new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='disable'?false:{rejectUnauthorized:false},max:3,connectionTimeoutMillis:8000}) : null;
 let dbReady=null;
+async function recordAudit(id,meta){
+ if(!await database())return false;
+ await db.query('INSERT INTO rastro_audit_registry (audit_id,source_type,source_name,source_url,created_at) VALUES($1,$2,$3,$4,NOW())',[id,meta.type,meta.name,meta.url]);
+ return true;
+}
+
 async function database(){
  if(!db)return false;
  if(!dbReady)dbReady=db.query(`CREATE TABLE IF NOT EXISTS rastro_inventory (
  kind TEXT NOT NULL, item TEXT NOT NULL, count BIGINT NOT NULL DEFAULT 0,
  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(kind,item)
- )`).then(()=>true).catch(e=>{dbReady=null;console.error('INVENTORY DB:',e.message);return false});
+ )`).then(()=>db.query(`CREATE TABLE IF NOT EXISTS rastro_audit_registry (audit_id TEXT PRIMARY KEY,source_type TEXT NOT NULL,source_name TEXT NOT NULL,source_url TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`)).then(()=>true).catch(e=>{dbReady=null;console.error('INVENTORY DB:',e.message);return false});
  return dbReady;
 }
 async function incrementInventory(kind,items){
@@ -119,6 +125,7 @@ async function incrementInventory(kind,items){
  'INSERT INTO rastro_inventory(kind,item,count) VALUES($1,$2,1) ON CONFLICT(kind,item) DO UPDATE SET count=rastro_inventory.count+1,updated_at=NOW()',
  [kind,item]);
 }
+app.get('/api/db/status',async(_req,res)=>{if(!db)return res.status(503).json({persistent:false,diagnostic:'DATABASE_URL_AUSENTE'});try{await db.query('SELECT 1');const ok=await database();res.status(ok?200:503).json({persistent:ok,diagnostic:ok?'POSTGRES_OK':'TABELAS_INDISPONIVEIS'});}catch(e){console.error('DB STATUS:',e.code||e.name);res.status(503).json({persistent:false,diagnostic:'CONEXAO_FALHOU',errorCode:e.code||'UNKNOWN'});}});
 app.get('/api/inventory',async(_req,res)=>{
  if(!db)return res.json({persistent:false,counts:[],diagnostic:'DATABASE_URL_AUSENTE',note:'O processo Node.js não recebeu a variável DATABASE_URL. Confira Environment e o deploy ativo.'});
  if(!await database())return res.status(503).json({persistent:false,counts:[],diagnostic:'CONEXAO_OU_TABELA_FALHOU',note:'DATABASE_URL está presente, mas não foi possível conectar ao PostgreSQL ou inicializar a tabela. Consulte os Logs do Render por INVENTORY DB.'});
@@ -293,7 +300,7 @@ app.post('/api/transcribe',protect,upload.single('media'),async(req,res)=>{
 });
 app.post('/api/audit',protect,async(req,res)=>{
  if(!openai)return res.status(503).json({error:'Configure OPENAI_API_KEY no servidor.'});
- const {text,selected,source}=req.body||{};
+ const {text,selected,source,sourceType,sourceName}=req.body||{};
  if(typeof text!=='string'||!text.trim())return res.status(400).json({error:'Forneça texto ou transcrição.'});
  if(text.length>45000)return res.status(400).json({error:'Analise blocos de até 45.000 caracteres por vez para permitir pesquisa documental.'});
  if(!Array.isArray(selected)||selected.some(i=>!Number.isInteger(i)||i<0||i>=topics.length)||!selected.length)return res.status(400).json({error:'Selecione categorias válidas.'});
@@ -302,8 +309,10 @@ app.post('/api/audit',protect,async(req,res)=>{
   const response=await openai.responses.create({model:'gpt-4.1-mini',tools:[{type:'web_search',search_context_size:'medium'}],tool_choice:'auto',input:prompt,max_output_tokens:3400});
   const citations=[];
   for(const output of response.output||[])for(const content of output.content||[])for(const ann of content.annotations||[])if(ann.type==='url_citation'&&ann.url)citations.push({title:ann.title||ann.url,url:ann.url});
-  try{await incrementInventory('auditoria',['total',...selected.map(i=>String(i+1).padStart(2,'0'))]);}catch(err){console.error('INVENTORY:',err.message)}
-  res.json({report:response.output_text||'',citations:[...new Map(citations.map(v=>[v.url,v])).values()],model:'gpt-4.1-mini',reviewRequired:true});
+  const auditId='RASTRO-'+new Date().toISOString().slice(0,10).replaceAll('-','')+'-'+randomUUID().slice(0,8).toUpperCase();
+  let persisted=false;
+  try{persisted=await recordAudit(auditId,{type:String(sourceType||'text').slice(0,30),name:String(sourceName||'Material enviado').slice(0,300),url:String(source||'').slice(0,1200)});await incrementInventory('auditoria',['total',...selected.map(i=>String(i+1).padStart(2,'0'))]);}catch(err){console.error('AUDIT REGISTRY:',err.code||err.message)}
+  res.json({auditId,persisted,report:response.output_text||'',citations:[...new Map(citations.map(v=>[v.url,v])).values()],model:'gpt-4.1-mini',reviewRequired:true});
  }catch(e){fail(res,e)}
 });
 app.use((err,req,res,next)=>{if(err instanceof multer.MulterError)return res.status(413).json({error:'Arquivo excede limite configurado.'});fail(res,err)});
