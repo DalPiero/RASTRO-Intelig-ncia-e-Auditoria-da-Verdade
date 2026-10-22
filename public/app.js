@@ -60,3 +60,40 @@ document.getElementById('issuePass').onclick=async()=>{
   document.getElementById('passResult').textContent=output;
  }catch(e){document.getElementById('passResult').textContent='Erro: '+e.message}
 };
+
+
+const adminIn=document.getElementById('adminSignIn');
+const adminOut=document.getElementById('adminSignOut');
+const adminMessage=document.getElementById('adminLoginStatus');
+function updateAdminUI(active){
+ adminOut.hidden=!active;
+ adminIn.hidden=active;
+ adminMessage.textContent=active?'Administrador autenticado. Acesso sem cotas comerciais, sujeito aos limites técnicos e aos créditos da API.':'Acesso administrativo não iniciado.';
+ if(active)document.getElementById('accessChoice').textContent='Modo administrador ativo.';
+}
+adminIn?.addEventListener('click',async()=>{
+ const token=prompt('Código privado do criador (RASTRO_ACCESS_TOKEN). Não é a chave OpenAI:');
+ if(!token)return;
+ try{
+  const r=await fetch('/api/access/status',{headers:{'X-RASTRO-TOKEN':token.trim()}});
+  const result=await r.json();
+  if(!result.active||result.mode!=='admin')throw Error('Código administrativo não reconhecido.');
+  sessionStorage.setItem('rastro_token',token.trim());
+  sessionStorage.setItem('rastro_mode','admin');
+  updateAdminUI(true);
+ }catch(e){adminMessage.textContent='Não foi possível autenticar: '+e.message}
+});
+adminOut?.addEventListener('click',()=>{
+ sessionStorage.removeItem('rastro_token');
+ sessionStorage.removeItem('rastro_mode');
+ updateAdminUI(false);
+ document.getElementById('accessChoice').textContent='Escolha um acesso para pesquisar.';
+});
+(async()=>{
+ if(sessionStorage.getItem('rastro_mode')==='admin'){
+  const token=sessionStorage.getItem('rastro_token');
+  if(token){try{const r=await fetch('/api/access/status',{headers:{'X-RASTRO-TOKEN':token}});const d=await r.json();if(d.active&&d.mode==='admin'){updateAdminUI(true);return}}catch{}}
+  sessionStorage.removeItem('rastro_token');sessionStorage.removeItem('rastro_mode');
+ }
+ updateAdminUI(false);
+})();
