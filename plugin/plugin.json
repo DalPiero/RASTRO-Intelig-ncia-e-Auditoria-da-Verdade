@@ -1,0 +1,9 @@
+{
+  "name": "rastro",
+  "version": "0.1.0",
+  "description": "RASTRO — investigação documental, preparação de pautas de verificação e orientação para auditorias com revisão humana.",
+  "author": {
+    "name": "RASTRO — Curadoria Dal Piero"
+  },
+  "license": "UNLICENSED"
+}
