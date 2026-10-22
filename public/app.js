@@ -27,7 +27,29 @@ async function request(route,opts={}){if(route!=='/api/health'){const isFree=ses
 (async()=>{try{const h=await request('/api/health');$('health').textContent=h.configured?'● API conectada':'● chave de API não configurada';notify(h.configured?'Servidor pronto para transcrição e pesquisa.':'Servidor ativo; falta configurar OPENAI_API_KEY.')}catch{$('health').textContent='● servidor indisponível';notify('Abra o site no servidor Node.js. A página HTML sozinha não executa APIs.')}})();
 function busy(button,active,label){button.disabled=active;button.textContent=active?'⏳ Processando...':label}
 $('transcribe').onclick=async()=>{const f=currentMedia||$('audio').files[0]||$('video').files[0];if(!f){notify('Escolha Áudio ou Filme e selecione um arquivo de mídia.');return}const button=$('transcribe');busy(button,true,'✦ Transcrever mídia');notify('Enviando e transcrevendo a mídia selecionada. O serviço pode levar mais tempo em vídeos longos.');try{const fd=new FormData();fd.append('media',f);const data=await request('/api/transcribe',{method:'POST',body:fd});$('transcript').value=data.text;notify('Transcrição concluída: '+data.segments.length+' segmentos. '+data.note)}catch(e){notify('Erro na transcrição: '+e.message)}finally{busy(button,false,'✦ Transcrever mídia')}};
-$('audit').onclick=async()=>{const text=mode==='text'?$('plain').value.trim():$('transcript').value.trim();if(!text){notify('Cole um texto ou gere/importe uma transcrição.');return}if(!selected().length){notify('Selecione ao menos uma categoria.');return}const button=$('audit');busy(button,true,'🔎 Pesquisar evidências');notify('Pesquisando fontes na web e preparando o laudo preliminar...');try{const data=await request('/api/audit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,selected:selected(),source:$('url').value.trim()})});report=data.report||'Nenhum conteúdo retornado.';$('report').textContent=report;const box=$('citations');box.replaceChildren();if(data.citations?.length){const title=document.createElement('h3');title.textContent='Fontes citadas';box.append(title);for(const c of data.citations){const a=document.createElement('a');a.href=c.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=c.title+' — '+c.url;box.append(a)}}notify('Laudo preliminar criado. Verifique manualmente cada fonte e sua pertinência.');$('report').scrollIntoView({behavior:'smooth'})}catch(e){notify('Erro na pesquisa: '+e.message)}finally{busy(button,false,'🔎 Pesquisar evidências')}};
+
+function sourceInfo(){
+ const type={url:'URL',video:'FILME / VÍDEO',audio:'ÁUDIO',text:'TEXTO'}[mode]||'MATERIAL';
+ const url=$('url')?.value.trim()||'';
+ const file=(mode==='video'?$('video')?.files[0]:mode==='audio'?$('audio')?.files[0]:null);
+ const sub=$('subtitle')?.files[0];
+ const value=mode==='url'?(url||'URL não informada'):file?.name||(mode==='text'?'Texto inserido no RASTRO':sub?.name||'Transcrição fornecida');
+ return {type,value,sourceURL:mode==='url'?url:'',date:new Date().toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})};
+}
+function reportHeader(info){
+ return 'RASTRO — LAUDO PRELIMINAR\\n'+'MATERIAL ANALISADO: '+info.value+'\\nTIPO: '+info.type+'\\n'+(info.sourceURL?'URL ORIGINAL: '+info.sourceURL+'\\n':'')+'DATA (BRASÍLIA): '+info.date+'\\n'+'────────────────────────────────\\n\\n';
+}
+function renderSource(info){
+ const box=$('reportSource');if(!box)return;
+ box.replaceChildren();
+ const strong=document.createElement('strong');strong.textContent='MATERIAL ANALISADO — '+info.type;
+ const label=document.createElement('div');label.textContent=info.value;
+ const date=document.createElement('small');date.textContent='Análise: '+info.date+' (Brasília)';
+ box.append(strong,label,date);
+ if(info.sourceURL){const a=document.createElement('a');a.href=info.sourceURL;a.target='_blank';a.rel='noopener noreferrer';a.textContent='Abrir URL original ↗';box.append(a)}
+}
+
+$('audit').onclick=async()=>{const text=mode==='text'?$('plain').value.trim():$('transcript').value.trim();if(!text){notify('Cole um texto ou gere/importe uma transcrição.');return}if(!selected().length){notify('Selecione ao menos uma categoria.');return}const button=$('audit');busy(button,true,'🔎 Pesquisar evidências');notify('Pesquisando fontes na web e preparando o laudo preliminar...');try{const data=await request('/api/audit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,selected:selected(),source:$('url').value.trim()})});const info=sourceInfo();renderSource(info);report=reportHeader(info)+(data.report||'Nenhum conteúdo retornado.');$('report').textContent=data.report||'Nenhum conteúdo retornado.';const box=$('citations');box.replaceChildren();if(data.citations?.length){const title=document.createElement('h3');title.textContent='Fontes citadas';box.append(title);for(const c of data.citations){const a=document.createElement('a');a.href=c.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=c.title+' — '+c.url;box.append(a)}}notify('Laudo preliminar criado. Verifique manualmente cada fonte e sua pertinência.');$('report').scrollIntoView({behavior:'smooth'})}catch(e){notify('Erro na pesquisa: '+e.message)}finally{busy(button,false,'🔎 Pesquisar evidências')}};
 $('copy').onclick=async()=>{try{await navigator.clipboard.writeText(report);notify('Relatório copiado.')}catch{notify('Não foi possível copiar; selecione o texto manualmente.')}};
 $('save').onclick=()=>{const blob=new Blob([report],{type:'text/plain;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download='RASTRO_Laudo_Preliminar.txt';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
 
