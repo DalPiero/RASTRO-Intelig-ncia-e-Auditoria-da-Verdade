@@ -86,7 +86,7 @@ $('academicRun').addEventListener('click',async()=>{
    const text=academicChunks[academicCursor];
    status('Analisando lote '+(academicCursor+1)+' de '+academicChunks.length+'...');
    const section=(text.match(/\[Página\s+\d+\]/i)||text.match(/(?:capítulo|seção)\s+[^\n]{1,65}/i)||[])[0]||'Lote '+(academicCursor+1);
-   const r=await fetch('/api/academic/analyze',{method:'POST',headers:{'Content-Type':'application/json','X-RASTRO-ACADEMIC':token},body:JSON.stringify({text,source:name,section})});
+   const r=await fetch('/api/academic/analyze',{method:'POST',headers:{'Content-Type':'application/json','X-RASTRO-ACADEMIC':token},body:JSON.stringify({text,source:name,section,requestId:'acad_'+crypto.randomUUID()})});
    const d=await r.json();if(!r.ok)throw Error(d.error||'Falha no lote '+(academicCursor+1));
    const wordsUsed=Number(d.consumedWords||0);
    academicReports.push({section,words:wordsUsed,report:d.report||''});
@@ -101,5 +101,24 @@ $('academicIssue').addEventListener('click',async()=>{
  const reference=$('academicReference').value.trim();if(!reference)return status('Informe a referência do pagamento já verificado.');
  if(!confirm('Você já confirmou o recebimento do pagamento fora do RASTRO?'))return;
  try{const r=await fetch('/api/admin/academic/issue',{method:'POST',headers:{'Content-Type':'application/json','X-RASTRO-ADMIN':admin},body:JSON.stringify({reference})});const d=await r.json();if(!r.ok)throw Error(d.error||'Não foi possível emitir');$('academicIssueResult').textContent='Código (copie e encaminhe privadamente): '+d.code+' — 450.000 palavras, sem vencimento.';}catch(e){$('academicIssueResult').textContent=e.message}
+});
+
+let ledgerCache=null;
+async function fetchLedger(){
+ const token=academicKey();if(!token)throw Error('Informe o código acadêmico.');
+ const r=await fetch('/api/academic/ledger',{headers:{'X-RASTRO-ACADEMIC':token}});const d=await r.json();
+ if(!r.ok)throw Error(d.error||'Falha ao consultar extrato.');
+ ledgerCache=d;return d;
+}
+$('academicLedger').addEventListener('click',async()=>{
+ try{const d=await fetchLedger();const host=$('academicLedgerView');host.replaceChildren();
+ const summary=document.createElement('p');summary.textContent='Adquiridas: '+Number(d.purchasedWords).toLocaleString('pt-BR')+' | Consumidas: '+(Number(d.purchasedWords)-Number(d.remainingWords)).toLocaleString('pt-BR')+' | Saldo: '+Number(d.remainingWords).toLocaleString('pt-BR');host.append(summary);
+ const table=document.createElement('table');table.style.width='100%';const head=document.createElement('tr');for(const name of ['Data','Movimento','Palavras','Estado','Documento / seção']){const th=document.createElement('th');th.textContent=name;head.append(th)}table.append(head);
+ for(const item of d.events){const row=document.createElement('tr');for(const cell of [new Date(item.created_at).toLocaleString('pt-BR'),item.event,item.words,item.status,(item.source_name||'')+' '+(item.section_name||'')]){const td=document.createElement('td');td.textContent=String(cell);td.style.padding='5px';row.append(td)}table.append(row)}host.append(table);
+ status('Extrato carregado: últimas '+d.events.length+' movimentações.');
+ }catch(e){status('Extrato indisponível: '+e.message)}
+});
+$('academicLedgerCsv').addEventListener('click',async()=>{
+ try{const d=await fetchLedger();const fields=['created_at','request_id','event','words','status','balance_after','source_name','section_name'];const quote=x=>'"'+String(x??'').replace(/"/g,'""')+'"';const lines=[fields.join(';'),...d.events.map(e=>fields.map(k=>quote(e[k])).join(';'))];const blob=new Blob(['\\ufeff'+lines.join('\\r\\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='RASTRO_Extrato_Creditos.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status('Extrato CSV gerado.')}catch(e){status(e.message)}
 });
 })();
