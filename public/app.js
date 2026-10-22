@@ -37,7 +37,7 @@ function sourceInfo(){
  return {type,value,sourceURL:mode==='url'?url:'',date:new Date().toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})};
 }
 function reportHeader(info){
- return ['RASTRO — LAUDO PRELIMINAR','AUDITORIA: '+(info.auditId||'Sem ID'),'MATERIAL ANALISADO: '+info.value,'TIPO: '+info.type,...(info.sourceURL?['URL ORIGINAL: '+info.sourceURL]:[]),'DATA (BRASÍLIA): '+info.date,'────────────────────────────────',''].join('\\n');
+ return ['RASTRO — LAUDO PRELIMINAR','AUDITORIA: '+(info.auditId||'Sem ID'),'MATERIAL ANALISADO: '+info.value,'TIPO: '+info.type,...(info.sourceURL?['URL ORIGINAL: '+info.sourceURL]:[]),'DATA (BRASÍLIA): '+info.date,'────────────────────────────────',''].join('\n');
 }
 function renderSource(info){
  const box=$('reportSource');if(!box)return;
