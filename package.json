@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check public/app.js && node --check public/export-report.js && node --check public/report-chart.js && node --check public/inventory.js"
+    "check": "node --check server.js && node --check public/app.js && node --check public/export-report.js && node --check public/report-chart.js && node --check public/inventory.js && node --check public/academic.js"
   },
   "dependencies": {
     "express": "^4.21.2",
