@@ -6,7 +6,7 @@ function contents(){
  if(!body||body.startsWith('O relatório aparecerá'))throw Error('Gere primeiro uma auditoria para exportar.');
  const source=$('reportSource');
  const title=source?.querySelector('strong')?.textContent||'MATERIAL ANALISADO';
- const auditId=(title.match(/RASTRO-\\d{8}-[A-F0-9]{8}/)||[])[0]||'SEM-ID';
+ const auditId=(title.match(/RASTRO-\d{8}-[A-F0-9]{8}/)||[])[0]||'SEM-ID';
  const file=source?.querySelector('div')?.textContent||'Material não identificado';
  const date=source?.querySelector('small')?.textContent||new Date().toLocaleString('pt-BR');
  const origin=source?.querySelector('a')?.href||'';
