@@ -57,4 +57,49 @@ $('academicAudit').addEventListener('click',()=>{
  plain.scrollIntoView({behavior:'smooth',block:'center'});
  status('Trecho transferido para auditoria. Selecione as categorias e clique em Pesquisar evidências. Essa ação não analisa automaticamente o documento inteiro.');
 });
+
+let academicCursor=0,academicChunks=[],academicRunning=false,academicReports=[];
+function chunksOf(text,max=18000){
+ const output=[];let i=0;while(i<text.length){let end=Math.min(i+max,text.length);if(end<text.length){const split=text.lastIndexOf(' ',end);if(split>i+max/2)end=split;}const t=text.slice(i,end).trim();if(t)output.push(t);i=end;}return output;
+}
+function showAcademicProgress(){
+ const progress=$('academicProgress');if(!progress)return;
+ const total=academicChunks.length;
+ progress.textContent='Lotes analisados: '+academicCursor+'/'+total+' • Palavras processadas nesta análise: '+academicReports.reduce((n,r)=>n+r.words,0).toLocaleString('pt-BR');
+}
+function academicKey(){return $('academicCode').value.trim()}
+$('academicBalance').addEventListener('click',async()=>{
+ const token=academicKey();if(!token){status('Informe seu código acadêmico.');return}
+ try{const r=await fetch('/api/academic/balance',{headers:{'X-RASTRO-ACADEMIC':token}});const d=await r.json();if(!r.ok)throw Error(d.error||'Falha');$('academicProgress').textContent=d.unlimited?'Acesso do administrador.':('Saldo: '+Number(d.remainingWords).toLocaleString('pt-BR')+' palavras. Sem vencimento e sem renovação automática.')}catch(e){status(e.message)}
+});
+$('academicReset').addEventListener('click',()=>{if(academicRunning)return;academicCursor=0;academicChunks=[];academicReports=[];$('academicResults').textContent='';showAcademicProgress()});
+$('academicRun').addEventListener('click',async()=>{
+ if(academicRunning)return;
+ if(!documentText){status('Envie um documento antes de iniciar a análise integral.');return}
+ const token=academicKey();if(!token){status('Informe seu código de créditos acadêmicos.');return}
+ if(!academicChunks.length)academicChunks=chunksOf(documentText);
+ if(academicCursor===academicChunks.length){status('Todos os lotes deste documento já foram analisados.');return}
+ academicRunning=true;$('academicRun').disabled=true;
+ try{
+  const stop=Math.min(academicCursor+5,academicChunks.length);
+  while(academicCursor<stop){
+   const text=academicChunks[academicCursor];
+   status('Analisando lote '+(academicCursor+1)+' de '+academicChunks.length+'...');
+   const section=(text.match(/\[Página\s+\d+\]/i)||text.match(/(?:capítulo|seção)\s+[^\n]{1,65}/i)||[])[0]||'Lote '+(academicCursor+1);
+   const r=await fetch('/api/academic/analyze',{method:'POST',headers:{'Content-Type':'application/json','X-RASTRO-ACADEMIC':token},body:JSON.stringify({text,source:name,section})});
+   const d=await r.json();if(!r.ok)throw Error(d.error||'Falha no lote '+(academicCursor+1));
+   const wordsUsed=Number(d.consumedWords||0);
+   academicReports.push({section,words:wordsUsed,report:d.report||''});
+   const block=document.createElement('section'),title=document.createElement('h3'),body=document.createElement('p');title.textContent='Lote '+(academicCursor+1)+' — '+section;body.textContent=d.report||'(Sem conteúdo retornado)';block.append(title,body);$('academicResults').append(block);
+   academicCursor++;showAcademicProgress();
+  }
+  status(academicCursor===academicChunks.length?'Documento processado em todos os lotes. Confira as conclusões de cada parte.':'Pausa após 5 lotes. Clique novamente para continuar, consumindo créditos adicionais.');
+ }catch(e){status('Análise interrompida: '+e.message+'. Os lotes já concluídos permanecem registrados na tela.')}finally{academicRunning=false;$('academicRun').disabled=false;}
+});
+$('academicIssue').addEventListener('click',async()=>{
+ const admin=prompt('Informe o código do administrador RASTRO:');if(!admin)return;
+ const reference=$('academicReference').value.trim();if(!reference)return status('Informe a referência do pagamento já verificado.');
+ if(!confirm('Você já confirmou o recebimento do pagamento fora do RASTRO?'))return;
+ try{const r=await fetch('/api/admin/academic/issue',{method:'POST',headers:{'Content-Type':'application/json','X-RASTRO-ADMIN':admin},body:JSON.stringify({reference})});const d=await r.json();if(!r.ok)throw Error(d.error||'Não foi possível emitir');$('academicIssueResult').textContent='Código (copie e encaminhe privadamente): '+d.code+' — 450.000 palavras, sem vencimento.';}catch(e){$('academicIssueResult').textContent=e.message}
+});
 })();
