@@ -6,13 +6,14 @@ function contents(){
  if(!body||body.startsWith('O relatório aparecerá'))throw Error('Gere primeiro uma auditoria para exportar.');
  const source=$('reportSource');
  const title=source?.querySelector('strong')?.textContent||'MATERIAL ANALISADO';
+ const auditId=(title.match(/RASTRO-\\d{8}-[A-F0-9]{8}/)||[])[0]||'SEM-ID';
  const file=source?.querySelector('div')?.textContent||'Material não identificado';
  const date=source?.querySelector('small')?.textContent||new Date().toLocaleString('pt-BR');
  const origin=source?.querySelector('a')?.href||'';
  const citations=[...document.querySelectorAll('#citations a')].map(a=>({name:a.textContent.trim(),url:a.href})).filter(a=>/^https?:/.test(a.url));
  const chart=$('rastro-chart-canvas');
  const image=chart&&chart.width&&chart.height&&chart.dataset.ready!=='false'?chart.toDataURL('image/png'):null;
- return {title,file,date,origin,body,citations,image};
+ return {auditId,title,file,date,origin,body,citations,image};
 }
 const notice=msg=>{const el=$('notice');if(el)el.textContent=msg;};
 function filename(s,ext){return 'RASTRO_'+s.replace(/https?:\/\//g,'').replace(/[^a-zA-Z0-9_-]+/g,'_').slice(0,55)+'.'+ext}
@@ -36,7 +37,7 @@ async function toPDF(){
  for(const c of d.citations){const text=c.name||c.url;const pieces=pdf.splitTextToSize(text,pageW-2*margin);for(const piece of pieces){if(y>bottom){pdf.addPage();y=20}pdf.setTextColor(22,79,150);pdf.setFontSize(9);pdf.textWithLink(piece,margin,y,{url:c.url});y+=5.2}y+=2;}
  line('Laudo preliminar sujeito à revisão humana. O gráfico deve ser validado antes da publicação.',8);
  const pageCount=pdf.getNumberOfPages();for(let i=1;i<=pageCount;i++){pdf.setPage(i);pdf.setFontSize(8);pdf.setTextColor(100,110,120);pdf.text('RASTRO • Página '+i+' de '+pageCount,margin,289)}
- pdf.save(filename(d.file,'pdf'));
+ pdf.save(filename(d.auditId+'_'+d.file,'pdf'));
 }
 async function toDOCX(){
  const d=contents(),D=window.docx;if(!D?.Document||!D.Packer)throw Error('A biblioteca DOCX não carregou. Atualize a página e tente novamente.');
@@ -55,7 +56,7 @@ async function toDOCX(){
  p('Laudo preliminar sujeito à revisão humana. Valide os números do gráfico antes de divulgar.')
  ];
  const doc=new Document({sections:[{properties:{page:{margin:{top:900,bottom:900,left:900,right:900}}},children:body}]});
- const blob=await Packer.toBlob(doc);download(blob,filename(d.file,'docx'));
+ const blob=await Packer.toBlob(doc);download(blob,filename(d.auditId+'_'+d.file,'docx'));
 }
 for(const [id,fn] of [['exportPdf',toPDF],['exportDocx',toDOCX]]){
  const button=$(id);if(!button)continue;
