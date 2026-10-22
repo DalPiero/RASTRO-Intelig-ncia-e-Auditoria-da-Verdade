@@ -9,7 +9,10 @@ app.use(express.json({limit:'64kb'}));
 const HOME='https://teaching-recipe-seagull.codepen.app/';
 const PORT=Number(process.env.PORT||3100);
 const icon=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="52" fill="#081a36"/><text x="27" y="193" font-size="190" font-family="Georgia,serif" font-weight="bold" fill="#f6c456">T</text><circle cx="175" cy="160" r="58" stroke="#f6c456" stroke-width="10" fill="#0079bd"/><path d="M117 160h116M175 102c-28 27-28 89 0 116M175 102c28 27 28 89 0 116M129 133h92M129 186h92" stroke="#bceefe" stroke-width="5" fill="none"/><path d="M112 185q65 62 137-42" stroke="#f6c456" stroke-width="9" fill="none"/></svg>`;
-app.get('/favicon.svg',(_req,res)=>res.type('image/svg+xml').send(icon));
+const FAVICON_PNG='https://assets.codepen.io/14270732/7Tradutor.png';
+app.get('/favicon.svg',(_req,res)=>res.redirect(302,FAVICON_PNG));
+app.get(['/favicon.ico','/favicon.png'],(_req,res)=>res.redirect(302,FAVICON_PNG));
+app.get('/',(_req,res)=>res.type('html').send(`<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tradutor Multilíngue — Dal Piero | Plugin ChatGPT</title><link rel="icon" type="image/png" sizes="256x256" href="${FAVICON_PNG}"></head><body style="font:16px system-ui,sans-serif;max-width:720px;margin:7vh auto;padding:20px;color:#11233e"><h1>🌐 Tradutor Multilíngue — Dal Piero</h1><p>Servidor de integração do Tradutor com o ChatGPT.</p><p><a href="${HOME}">Abrir o aplicativo Tradutor</a></p><p><a href="/health">Verificar status do servidor</a></p><p>Endpoint MCP: <code>/mcp</code></p></body></html>`));
 app.get('/health',(_req,res)=>res.json({ok:true,service:'tradutor-multilingue-plugin',siteUnchanged:true,version:'0.1.0'}));
 function makeServer(){
  const mcp=new McpServer({name:'tradutor-multilingue-dal-piero',version:'0.1.0'});
