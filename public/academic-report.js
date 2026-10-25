@@ -115,9 +115,27 @@
    lines('Figura — '+(cv.parentElement?.previousElementSibling?.textContent||'Distribuição de padrões'),24,true);
    x.drawImage(cv,70,y,1080,495);y+=540;
   }
+  lines('O QUE SIGNIFICA «SINALIZADAS»?',27,true);
+  lines('Uma passagem sinalizada é um trecho em que o sistema encontrou repetição de conectivos, expressões formulaicas, combinação de estruturas padronizadas ou aberturas semelhantes. O destaque convida à revisão editorial; NÃO comprova que o texto foi produzido por IA.',22);
+  lines('O índice percentual corresponde às palavras contidas nesses trechos divididas pelo total analisado. Não representa probabilidade de autoria artificial, nem percentual de texto efetivamente gerado por IA.',22);
   lines('TRECHOS SINALIZADOS E CRITÉRIOS',28,true);
   if(!data.flagged.length)lines('Nenhum trecho atingiu os critérios definidos. Isso não comprova autoria humana.');
   for(const item of data.flagged){lines('Trecho '+item.number+' — '+item.words+' palavras — '+item.reasons.join('; '),22,true);lines(item.text,22)}
+  lines('ORIENTAÇÃO ACADÊMICA E RECOMENDAÇÕES DE REVISÃO',27,true);
+  lines('Para graduandos, mestrandos, doutorandos, orientadores e bancas: examine cada trecho destacado no contexto do capítulo e da pergunta de pesquisa; não considere sinalização como irregularidade acadêmica.',22);
+  const allReasons=new Set(data.flagged.flatMap(v=>v.reasons));
+  if(allReasons.has('Conectivos discursivos recorrentes'))lines('Revisão sugerida: variar a articulação entre argumentos e eliminar conectivos redundantes sem perder a coesão.',22);
+  if(allReasons.has('Expressões formulaicas repetidas'))lines('Revisão sugerida: substituir formulações genéricas por conceitos definidos, dados empíricos e afirmações sustentadas em fontes identificáveis.',22);
+  if(allReasons.has('Conectivos e construções padronizadas no mesmo trecho'))lines('Revisão sugerida: explicitar a contribuição do pesquisador, a cadeia argumentativa e a relação entre hipóteses, método e resultados.',22);
+  if(allReasons.has('Abertura semelhante repetida em três ou mais trechos'))lines('Revisão sugerida: diversificar aberturas sem prejudicar o estilo disciplinar nem a precisão técnica.',22);
+  lines('Para toda tese: conferir referências primárias, citações, coerência metodológica, delimitação do corpus, análise crítica, originalidade científica, ética de pesquisa e normas do programa de pós-graduação.',22);
+  lines('CONCLUSÃO ORIENTATIVA',27,true);
+  lines('Foram sinalizados '+data.flagged.length+' de '+data.passages+' trechos; '+data.covered+' de '+data.total+' palavras estão nesses trechos ('+ratio(data.covered,data.total)+'). Esses números apenas descrevem recorrências linguísticas, não detectam autoria por IA.',22);
+  lines(data.flagged.length?'Recomenda-se revisão contextual dos trechos assinalados e eventual reescrita quando houver ganho demonstrável de precisão, fundamentação ou clareza. A decisão acadêmica cabe ao pesquisador, ao orientador e à banca, com avaliação qualitativa independente.':'Nenhum trecho alcançou os limiares das regras atuais. Isso não comprova autoria humana nem dispensa revisão científica do material.',22);
+  lines('PARECER DO ORIENTADOR — CAMPO PARA ANOTAÇÃO',27,true);
+  lines('Orientador(a): ____________________   Programa: ____________________',22);
+  lines('Comentários / encaminhamento: ______________________________________',22);
+  lines('_______________________________________________________________',22);
   lines('METODOLOGIA E LIMITAÇÕES',27,true);
   lines('Regras: dois ou mais conectivos repetidos; duas ou mais expressões formulaicas; presença conjunta; ou abertura semelhante em três trechos. Somente passagens de oito ou mais palavras podem ser sinalizadas.',22);
   lines('Segmentação por pontuação e parágrafos. Sem corpus de validação, sem taxa de acerto, intervalo de confiança ou conclusão sobre autoria. Não utilizar isoladamente para punições ou acusações.',22);
@@ -131,15 +149,16 @@
   pdf.save(reportName('pdf'));
  }
  async function savePng(){
-  const d=read();if(!d)throw Error('Execute primeiro a análise de estilo.');update();
-  const {c,x}=pageCanvas();drawHeader(x,1);let y=150;
-  for(const [i,line] of summaryLines(d).entries()){x.font=(i===0?'bold ':'')+(i===0?27:22)+'px Arial';for(const segment of wrapped(x,line,1080,i===0?27:22)){x.fillStyle='#142d49';x.fillText(segment,70,y);y+=38}y+=10}
-  const cv=current[0]||renderChart(choice.value,d);x.drawImage(cv,70,660,1090,500);
-  x.font='23px Arial';x.fillStyle='#172e48';x.fillText('Resumo ilustrado — excertos completos e gráficos adicionais disponíveis no PDF/DOCX.',70,1230);
-  x.fillText('Índice de cobertura ≠ probabilidade de autoria artificial.',70,1270);
-  const blob=await new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(Error('Falha ao gerar PNG')),'image/png'));
-  saveBlob(blob,reportName('png'));
+  const d=read();if(!d)throw Error('Execute primeiro a análise de estilo.');
+  update();const pages=producePages(d);
+  // Cada PNG é a reprodução pixel a pixel de sua página correspondente no PDF.
+  if(pages.length>1 && !confirm('O relatório tem '+pages.length+' páginas. Serão baixadas '+pages.length+' imagens PNG (uma por página). Autorize vários downloads neste site. Continuar?'))return;
+  for(let i=0;i<pages.length;i++){
+   const blob=await new Promise((resolve,reject)=>pages[i].toBlob(b=>b?resolve(b):reject(Error('Falha ao gerar PNG')),'image/png'));
+   saveBlob(blob,'RASTRO_Academico_'+new Date().toISOString().slice(0,10)+'_pagina_'+String(i+1).padStart(3,'0')+'_de_'+String(pages.length).padStart(3,'0')+'.png');
+  }
  }
+
  function bind(button,task,label){button?.addEventListener('click',async()=>{button.disabled=true;message.textContent='Preparando '+label+'...';try{await task();message.textContent=label+' gerado. Confira o arquivo na pasta Downloads.'}catch(e){message.textContent='Falha ao gerar '+label+': '+e.message}finally{button.disabled=false}})}
  bind(pdfButton,savePdf,'PDF completo');bind(pngButton,savePng,'PNG ilustrado');
 })();
