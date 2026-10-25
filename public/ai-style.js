@@ -54,6 +54,29 @@
   $('audit')?.scrollIntoView({behavior:'smooth'});
   status.textContent='Texto transferido; clique em Pesquisar evidências para executar a pesquisa com os 20 parâmetros.';
  });
+
+ const unified=$('aiUnifiedStatus');
+ const direct=$('aiStyleAudit20Direct'),combined=$('aiStyleCombined');
+ let running=false;
+ async function runDocumentary(combine){
+  if(running)return;
+  const t=textInput.value.trim();
+  if(!t){unified.textContent='Cole ou importe um documento antes de iniciar.';return}
+  if(t.length>45000){unified.textContent='A auditoria documental está limitada a 45.000 caracteres por execução. Selecione um trecho; os demais não serão declarados verificados.';return}
+  if(typeof window.rastroRun20Academic!=='function'){unified.textContent='Auditor documental indisponível. Recarregue a página.';return}
+  running=true;direct.disabled=true;combined.disabled=true;
+  try{
+   if(combine){$('aiStyleRun').click();unified.textContent='Análise de estilo concluída. Executando pesquisa documental dos 20 parâmetros...'}
+   else unified.textContent='Pesquisando fontes com os 20 parâmetros selecionados...';
+   const result=await window.rastroRun20Academic(t);
+   if(!result)throw Error('A pesquisa não retornou um laudo.');
+   unified.textContent='Pesquisa documental concluída (ID '+(result.auditId||'sem ID')+'). '+(combine?'As duas análises estão vinculadas ao mesmo texto; baixe DOCX/PDF/PNG na seção de relatório.':'Consulte o laudo e as fontes no auditor factual.');
+   if(combine)$('aiCharts')?.scrollIntoView({behavior:'smooth',block:'center'});
+  }catch(e){unified.textContent='Não foi possível concluir a auditoria: '+e.message+'. Nenhum parâmetro será apresentado como verificado sem pesquisa concluída.'}
+  finally{running=false;direct.disabled=false;combined.disabled=false}
+ }
+ direct?.addEventListener('click',()=>runDocumentary(false));
+ combined?.addEventListener('click',()=>runDocumentary(true));
  $('aiStyleCopy').addEventListener('click',async()=>{if(!summary){status.textContent='Analise um texto antes de copiar.';return}try{await navigator.clipboard.writeText(summary);status.textContent='Resultado copiado.'}catch{status.textContent='Não foi possível copiar automaticamente. Selecione o resultado na tela.'}});
  window.rastroStyleLoadDocument=text=>{textInput.value=String(text||'').slice(0,300000);status.textContent='Documento acadêmico transferido para o exame de estilo ('+wordCount(textInput.value).toLocaleString('pt-BR')+' palavras, limitado a 300.000 caracteres).';textInput.scrollIntoView({behavior:'smooth',block:'center'})};
  $('aiStyleImportAcademic').addEventListener('click',()=>{if(typeof window.rastroAcademicText!=='function'){status.textContent='Leitor acadêmico indisponível. Atualize a página.';return}const text=window.rastroAcademicText();if(!text){status.textContent='Carregue primeiro um documento no RASTRO Acadêmico.';return}window.rastroStyleLoadDocument(text)});
