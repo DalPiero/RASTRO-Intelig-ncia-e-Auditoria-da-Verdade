@@ -88,7 +88,6 @@
   const blob=await Packer.toBlob(doc),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='RASTRO_Academico_Analise_Estilo_'+new Date().toISOString().slice(0,10)+'.docx';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
  }
  const button=$('aiDocxExport');button?.addEventListener('click',async()=>{button.disabled=true;try{await exportDocx();message.textContent='Arquivo DOCX preparado. Confira o arquivo salvo e revise estatísticas e interpretação.'}catch(e){message.textContent='Falha na exportação: '+e.message}finally{button.disabled=false}});
-}
  // PDF completo em páginas A4; PNG é infográfico-resumo (sem truncar passagens silenciosamente).
  const pdfButton=$('aiPdfExport'),pngButton=$('aiImageExport');
  function reportName(ext){return 'RASTRO_Academico_'+new Date().toISOString().slice(0,10)+'.'+ext}
