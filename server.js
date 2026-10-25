@@ -273,6 +273,63 @@ app.post('/api/admin/issue-academic-voucher',async(req,res)=>{
   res.status(201).json({code,expiresAt:until.toISOString(),validForMinutes:120,kind:'cortesia-academica',note:'Voucher registrado. Envie o código somente ao destinatário.'});
  }catch(e){fail(res,e)}
 });
+
+const voucher2Rate=new Map();
+async function voucher2Schema(){
+ if(!db)throw Error('PostgreSQL indisponível');
+ await db.query(`CREATE TABLE IF NOT EXISTS rastro_two_hour_vouchers (
+ id BIGSERIAL PRIMARY KEY, applicant_name VARCHAR(160) NOT NULL,
+ email VARCHAR(240) NOT NULL, purpose VARCHAR(1500) NOT NULL,
+ device_hash TEXT NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'pending',
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ approved_at TIMESTAMPTZ, expires_at TIMESTAMPTZ
+ )`);
+}
+const validDevice=v=>/^rv2_[a-f0-9]{64}$/.test(v);
+app.post('/api/voucher2/request',async(req,res)=>{
+ const name=String(req.body?.name||'').trim(),email=String(req.body?.email||'').trim().toLowerCase();
+ const purpose=String(req.body?.purpose||'').trim(),device=String(req.get('X-RASTRO-DEVICE')||'');
+ if(!validDevice(device)||name.length<3||name.length>160||!/^\\S+@\\S+\\.\\S+$/.test(email)||email.length>240||purpose.length<12||purpose.length>1500)
+  return res.status(400).json({error:'Informe nome, e-mail, justificativa e use um navegador seguro.'});
+ const identity=sig(req.ip+'|'+device),now=Date.now(),recentHits=(voucher2Rate.get(identity)||[]).filter(t=>now-t<86400000);
+ if(recentHits.length>=3)return res.status(429).json({error:'Limite de solicitações atingido para hoje.'});
+ try{await voucher2Schema();
+  const existing=await db.query("SELECT id FROM rastro_two_hour_vouchers WHERE device_hash=$1 AND (status='pending' OR (status='approved' AND expires_at>NOW())) ORDER BY id DESC LIMIT 1",[sig(device)]);
+  if(existing.rowCount)return res.status(409).json({error:'Já existe solicitação pendente ou aprovada neste navegador.',requestId:existing.rows[0].id});
+  const q=await db.query('INSERT INTO rastro_two_hour_vouchers(applicant_name,email,purpose,device_hash) VALUES($1,$2,$3,$4) RETURNING id',[name,email,purpose,sig(device)]);
+  voucher2Rate.set(identity,[...recentHits,now]);
+  res.status(201).json({requestId:q.rows[0].id,status:'pending',message:'Pedido recebido. Somente o administrador poderá aprovar o voucher.'});
+ }catch(e){fail(res,e)}
+});
+app.post('/api/voucher2/status',async(req,res)=>{
+ const device=String(req.get('X-RASTRO-DEVICE')||''),id=Number(req.body?.requestId);
+ if(!validDevice(device)||!Number.isSafeInteger(id)||id<=0)return res.status(400).json({error:'Solicitação inválida.'});
+ try{await voucher2Schema();
+  const q=await db.query('SELECT status,expires_at FROM rastro_two_hour_vouchers WHERE id=$1 AND device_hash=$2',[id,sig(device)]);
+  if(!q.rowCount)return res.status(404).json({error:'Este navegador não possui a solicitação informada.'});
+  const d=q.rows[0],active=d.status==='approved'&&new Date(d.expires_at)>new Date();
+  res.json({status:active?'approved':d.status==='approved'?'expired':d.status,active,expiresAt:d.expires_at||null});
+ }catch(e){fail(res,e)}
+});
+app.get('/api/admin/voucher2',async(req,res)=>{
+ if(!adminOK(req.get('X-RASTRO-ADMIN')))return res.status(403).json({error:'Acesso administrativo negado.'});
+ try{await voucher2Schema();
+  const q=await db.query("SELECT id,applicant_name,email,purpose,status,created_at,approved_at,expires_at FROM rastro_two_hour_vouchers ORDER BY id DESC LIMIT 100");
+  res.json({requests:q.rows});
+ }catch(e){fail(res,e)}
+});
+app.post('/api/admin/voucher2/decide',async(req,res)=>{
+ if(!adminOK(req.get('X-RASTRO-ADMIN')))return res.status(403).json({error:'Acesso administrativo negado.'});
+ const id=Number(req.body?.requestId),approve=req.body?.approve;
+ if(!Number.isSafeInteger(id)||id<=0||typeof approve!=='boolean')return res.status(400).json({error:'Informe pedido e decisão válidos.'});
+ try{await voucher2Schema();
+  const q=approve?
+   await db.query("UPDATE rastro_two_hour_vouchers SET status='approved',approved_at=NOW(),expires_at=NOW()+INTERVAL '2 hours' WHERE id=$1 AND status='pending' RETURNING expires_at",[id]):
+   await db.query("UPDATE rastro_two_hour_vouchers SET status='denied' WHERE id=$1 AND status='pending' RETURNING id",[id]);
+  if(!q.rowCount)return res.status(409).json({error:'Pedido não encontrado ou já decidido.'});
+  res.json({ok:true,status:approve?'approved':'denied',expiresAt:approve?q.rows[0].expires_at:null});
+ }catch(e){fail(res,e)}
+});
 app.get('/api/access/status',async(req,res)=>{
  const token=req.get('X-RASTRO-TOKEN')||'';
  if(adminOK(token))return res.json({active:true,mode:'admin'});
