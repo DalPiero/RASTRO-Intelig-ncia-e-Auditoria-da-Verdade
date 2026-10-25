@@ -88,4 +88,59 @@
   const blob=await Packer.toBlob(doc),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='RASTRO_Academico_Analise_Estilo_'+new Date().toISOString().slice(0,10)+'.docx';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
  }
  const button=$('aiDocxExport');button?.addEventListener('click',async()=>{button.disabled=true;try{await exportDocx();message.textContent='Arquivo DOCX preparado. Confira o arquivo salvo e revise estatísticas e interpretação.'}catch(e){message.textContent='Falha na exportação: '+e.message}finally{button.disabled=false}});
+}
+ // PDF completo em páginas A4; PNG é infográfico-resumo (sem truncar passagens silenciosamente).
+ const pdfButton=$('aiPdfExport'),pngButton=$('aiImageExport');
+ function reportName(ext){return 'RASTRO_Academico_'+new Date().toISOString().slice(0,10)+'.'+ext}
+ function summaryLines(data){return [
+  'RASTRO ACADÊMICO — RELATÓRIO DE PADRÕES DE ESCRITA',
+  'Emissão: '+new Date(data.date).toLocaleString('pt-BR'),
+  'Palavras analisadas: '+f(data.total)+' | Caracteres: '+f(data.characters),
+  'Trechos: '+f(data.passages)+' | Com sinais: '+f(data.flagged.length)+' ('+ratio(data.flagged.length,data.passages)+')',
+  'Palavras sinalizadas: '+f(data.covered)+' | Demais palavras: '+f(data.total-data.covered),
+  'Cobertura descritiva: '+ratio(data.covered,data.total)+' | Densidade: '+(data.total?(1000*data.flagged.length/data.total).toFixed(2):'0')+' por mil palavras',
+  'Método: padrões linguísticos heurísticos; não é detector validado de autoria.',
+  'A porcentagem NÃO representa probabilidade de IA nem prova de autoria.'
+ ]}
+ function pageCanvas(){const c=document.createElement('canvas');c.width=1240;c.height=1754;let x=c.getContext('2d');x.fillStyle='#ffffff';x.fillRect(0,0,c.width,c.height);return {c,x}}
+ function wrapped(x,text,maxWidth,fontSize=24){x.font=fontSize+'px Arial';const lines=[];for(const para of String(text).split(/\n/)){let line='';for(const word of para.split(/\s+/)){const t=line?line+' '+word:word;if(x.measureText(t).width>maxWidth&&line){lines.push(line);line=word}else line=t}lines.push(line)}return lines}
+ function drawHeader(x,page){x.fillStyle='#142d49';x.fillRect(0,0,1240,82);x.fillStyle='#ffffff';x.font='bold 28px Arial';x.fillText('RASTRO  •  AVALIAÇÃO ACADÊMICA',65,52);x.fillStyle='#415267';x.font='21px Arial';x.fillText('Página '+page+'  |  Relatório descritivo, sujeito a revisão humana',65,1708)}
+ function producePages(data){
+  const pages=[];let {c,x}=pageCanvas(),y=115;
+  function newPage(){pages.push(c);({c,x}=pageCanvas());drawHeader(x,pages.length+1);y=124}
+  drawHeader(x,1);
+  function lines(text,sz=24,bold=false,gap=9){x.font=(bold?'bold ':'')+sz+'px Arial';const ls=wrapped(x,text,1090,sz);for(const ln of ls){if(y+sz+gap>1630)newPage();x.fillStyle='#172e48';x.font=(bold?'bold ':'')+sz+'px Arial';x.fillText(ln,70,y);y+=sz+gap}y+=10}
+  for(const [i,line] of summaryLines(data).entries())lines(line,i===0?30:23,i===0||i===5);
+  for(const cv of current.length?current:[renderChart(choice.value,data)]){
+   if(y+615>1630)newPage();
+   lines('Figura — '+(cv.parentElement?.previousElementSibling?.textContent||'Distribuição de padrões'),24,true);
+   x.drawImage(cv,70,y,1080,495);y+=540;
+  }
+  lines('TRECHOS SINALIZADOS E CRITÉRIOS',28,true);
+  if(!data.flagged.length)lines('Nenhum trecho atingiu os critérios definidos. Isso não comprova autoria humana.');
+  for(const item of data.flagged){lines('Trecho '+item.number+' — '+item.words+' palavras — '+item.reasons.join('; '),22,true);lines(item.text,22)}
+  lines('METODOLOGIA E LIMITAÇÕES',27,true);
+  lines('Regras: dois ou mais conectivos repetidos; duas ou mais expressões formulaicas; presença conjunta; ou abertura semelhante em três trechos. Somente passagens de oito ou mais palavras podem ser sinalizadas.',22);
+  lines('Segmentação por pontuação e parágrafos. Sem corpus de validação, sem taxa de acerto, intervalo de confiança ou conclusão sobre autoria. Não utilizar isoladamente para punições ou acusações.',22);
+  pages.push(c);return pages;
+ }
+ function saveBlob(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)}
+ async function savePdf(){
+  const d=read();if(!d)throw Error('Execute primeiro a análise de estilo.');const J=window.jspdf?.jsPDF;if(!J)throw Error('Biblioteca jsPDF indisponível. Atualize a página.');
+  update();const pages=producePages(d),pdf=new J({orientation:'portrait',unit:'mm',format:'a4',compress:true});
+  pages.forEach((page,i)=>{if(i)pdf.addPage();pdf.addImage(page.toDataURL('image/jpeg',0.82),'JPEG',0,0,210,297)});
+  pdf.save(reportName('pdf'));
+ }
+ async function savePng(){
+  const d=read();if(!d)throw Error('Execute primeiro a análise de estilo.');update();
+  const {c,x}=pageCanvas();drawHeader(x,1);let y=150;
+  for(const [i,line] of summaryLines(d).entries()){x.font=(i===0?'bold ':'')+(i===0?27:22)+'px Arial';for(const segment of wrapped(x,line,1080,i===0?27:22)){x.fillStyle='#142d49';x.fillText(segment,70,y);y+=38}y+=10}
+  const cv=current[0]||renderChart(choice.value,d);x.drawImage(cv,70,660,1090,500);
+  x.font='23px Arial';x.fillStyle='#172e48';x.fillText('Resumo ilustrado — excertos completos e gráficos adicionais disponíveis no PDF/DOCX.',70,1230);
+  x.fillText('Índice de cobertura ≠ probabilidade de autoria artificial.',70,1270);
+  const blob=await new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(Error('Falha ao gerar PNG')),'image/png'));
+  saveBlob(blob,reportName('png'));
+ }
+ function bind(button,task,label){button?.addEventListener('click',async()=>{button.disabled=true;message.textContent='Preparando '+label+'...';try{await task();message.textContent=label+' gerado. Confira o arquivo na pasta Downloads.'}catch(e){message.textContent='Falha ao gerar '+label+': '+e.message}finally{button.disabled=false}})}
+ bind(pdfButton,savePdf,'PDF completo');bind(pngButton,savePng,'PNG ilustrado');
 })();
