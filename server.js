@@ -59,6 +59,12 @@ async function protect(req,res,next){
    if(r.rowCount)mode='paid';
   }catch(e){console.error('Access DB:',e.message)}
  }
+ if(!mode&&validDevice(token)&&db){
+  try{await voucher2Schema();
+   const v=await db.query("SELECT 1 FROM rastro_two_hour_vouchers WHERE device_hash=$1 AND status='approved' AND expires_at>NOW() LIMIT 1",[sig(token)]);
+   if(v.rowCount)mode='voucher2';
+  }catch(e){console.error('VOUCHER2 AUTH:',e.code||e.message)}
+ }
  if(!mode&&freeRequested&&req.path==='/api/audit'){
   if(process.env.RASTRO_FREE_ENABLED!=='true'||!db||freeSalt.length<24)
    return res.status(503).json({error:'Acesso gratuito aguardando configuração do banco de dados e ativação pelo administrador.'});
