@@ -99,6 +99,22 @@ document.getElementById('enterPass').onclick=()=>{
  sessionStorage.setItem('rastro_mode','paid');
  document.getElementById('accessChoice').textContent='Código de passe informado. A validade será verificada pelo servidor ao pesquisar.';
 };
+document.getElementById('courtesyIssue')?.addEventListener('click',async()=>{
+ const button=document.getElementById('courtesyIssue'),box=document.getElementById('courtesyResult');
+ const reference=document.getElementById('courtesyReference').value.trim()||'Cortesia acadêmica externa';
+ const admin=prompt('Informe o código administrativo privado do RASTRO:');
+ if(!admin)return;
+ button.disabled=true;box.textContent='Emitindo voucher...';
+ try{
+  const response=await fetch('/api/admin/issue-academic-voucher',{method:'POST',headers:{'Content-Type':'application/json','X-RASTRO-ADMIN':admin},body:JSON.stringify({reference})});
+  const data=await response.json();if(!response.ok)throw Error(data.error||'Falha ao emitir voucher');
+  box.replaceChildren();
+  const label=document.createElement('p');label.textContent='Voucher ativo por 2 horas — expira em '+new Date(data.expiresAt).toLocaleString('pt-BR');
+  const code=document.createElement('code');code.textContent=data.code;
+  const copy=document.createElement('button');copy.type='button';copy.className='quiet';copy.textContent='Copiar voucher';copy.addEventListener('click',()=>navigator.clipboard.writeText(data.code));
+  box.append(label,code,copy);
+ }catch(e){box.textContent='Falha: '+e.message}finally{button.disabled=false}
+});
 document.getElementById('issuePass').onclick=async()=>{
  const ref=document.getElementById('paymentRef').value.trim();
  if(ref.length<5)return alert('Informe a referência da transação confirmada.');
