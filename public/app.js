@@ -45,6 +45,19 @@ window.addEventListener('rastro-meeting-ready',async e=>{
   notify('Transcrição disponível. Revise os falantes e clique em “Pesquisar evidências” para analisar declarações. A identificação de falantes é aproximada.');
  }
 });
+
+// Ponto de integração acadêmica: reutiliza auditoria autenticada existente.
+window.rastroRun20Academic=async function(text){
+ const t=String(text||'').trim();
+ if(!t)throw Error('Forneça o texto para investigar.');
+ if(t.length>45000)throw Error('A pesquisa documental aceita até 45.000 caracteres por execução; selecione um trecho.');
+ const p=$('plain');p.value=t;
+ document.querySelector('[data-mode="text"]')?.click();
+ $('all')?.click();
+ const result=await $('audit').onclick();
+ if(!result)throw Error('A pesquisa não foi concluída. Verifique a mensagem do auditor e seu acesso.');
+ return result;
+};
 function sourceInfo(){
  const type={url:'URL',video:'FILME / VÍDEO',audio:'ÁUDIO',text:'TEXTO'}[mode]||'MATERIAL';
  const url=$('url')?.value.trim()||'';
@@ -67,7 +80,7 @@ function renderSource(info){
 }
 
 $('audit').onclick=async()=>{const text=mode==='text'?$('plain').value.trim():$('transcript').value.trim();if(!text){notify('Cole um texto ou gere/importe uma transcrição.');return}if(!selected().length){notify('Selecione ao menos uma categoria.');return}const button=$('audit');busy(button,true,'🔎 Pesquisar evidências');notify('Pesquisando fontes na web e preparando o laudo preliminar...');try{const data=await request('/api/audit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,selected:selected(),source:$('url').value.trim(),sourceType:mode,sourceName:sourceInfo().value})});window.rastroLastDocumentaryAudit={inputText:text,report:data.report||'',citations:Array.isArray(data.citations)?data.citations:[],selected:selected(),auditId:data.auditId||'',createdAt:new Date().toISOString()};
-const info=sourceInfo();info.auditId=data.auditId||'Sem ID';renderSource(info);report=reportHeader(info)+(data.report||'Nenhum conteúdo retornado.');$('report').textContent=data.report||'Nenhum conteúdo retornado.';const box=$('citations');box.replaceChildren();if(data.citations?.length){const title=document.createElement('h3');title.textContent='Fontes citadas';box.append(title);for(const c of data.citations){const a=document.createElement('a');a.href=c.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=c.title+' — '+c.url;box.append(a)}}notify('Laudo '+(data.auditId||'sem ID')+' criado'+(data.persisted?' e registrado no banco.':'; registro permanente indisponível.')+' Revise fontes e conclusões.');$('report').scrollIntoView({behavior:'smooth'})}catch(e){notify('Erro na pesquisa: '+e.message)}finally{busy(button,false,'🔎 Pesquisar evidências')}};
+const info=sourceInfo();info.auditId=data.auditId||'Sem ID';renderSource(info);report=reportHeader(info)+(data.report||'Nenhum conteúdo retornado.');$('report').textContent=data.report||'Nenhum conteúdo retornado.';const box=$('citations');box.replaceChildren();if(data.citations?.length){const title=document.createElement('h3');title.textContent='Fontes citadas';box.append(title);for(const c of data.citations){const a=document.createElement('a');a.href=c.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=c.title+' — '+c.url;box.append(a)}}notify('Laudo '+(data.auditId||'sem ID')+' criado'+(data.persisted?' e registrado no banco.':'; registro permanente indisponível.')+' Revise fontes e conclusões.');$('report').scrollIntoView({behavior:'smooth'});return data}catch(e){notify('Erro na pesquisa: '+e.message);return null}finally{busy(button,false,'🔎 Pesquisar evidências')}};
 $('copy').onclick=async()=>{try{await navigator.clipboard.writeText(report);notify('Relatório copiado.')}catch{notify('Não foi possível copiar; selecione o texto manualmente.')}};
 $('save').onclick=()=>{const blob=new Blob([report],{type:'text/plain;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download='RASTRO_Laudo_Preliminar.txt';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
 
