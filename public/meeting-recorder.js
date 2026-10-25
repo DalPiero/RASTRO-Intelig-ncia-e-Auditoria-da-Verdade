@@ -5,7 +5,7 @@ const panel=el('meetingPanel');if(!panel)return;
 const open=el('meetingOpen'),close=el('meetingClose'),start=el('meetingStart'),stop=el('meetingStop'),preview=el('meetingPreview'),state=el('meetingState'),timer=el('meetingTimer'),mode=el('meetingMode'),consent=el('meetingConsent');
 let stream=null,recorder=null,parts=[],startedAt=0,tick=null,maxTimer=null,busy=false;
 let lastRecording=null;
-const forward=el('meetingToTranscribe');
+const forward=el('meetingToTranscribe'),autoTranscribe=el('meetingAutoTranscribe');
 const fmt=sec=>[Math.floor(sec/3600),Math.floor(sec/60)%60,sec%60].map(x=>String(x).padStart(2,'0')).join(':');
 const say=t=>state.textContent=t;
 function openPanel(on){panel.hidden=!on;open.setAttribute('aria-expanded',String(on));if(on)panel.scrollIntoView({behavior:'smooth',block:'start'})}
@@ -24,6 +24,7 @@ function save(){
  setTimeout(()=>URL.revokeObjectURL(url),60000);
  say('Gravação concluída: '+(blob.size/1048576).toFixed(1)+' MB. Verifique se o arquivo foi salvo no seu dispositivo.');
  if(lastRecording.size>80*1024*1024)say('Gravação salva, mas supera 80 MB; reduza ou divida para transcrever.');
+ else if(autoTranscribe?.checked){say('Gravação salva. Encaminhando à transcrição autorizada...');window.dispatchEvent(new CustomEvent('rastro-meeting-ready',{detail:{file:lastRecording,mode:mode.value}}));}
  parts=[];recorder=null;
 }
 start.addEventListener('click',async()=>{
@@ -46,7 +47,7 @@ start.addEventListener('click',async()=>{
   say('🔴 GRAVANDO — câmera/microfone ativos. Participantes informados. Clique em Parar e salvar ao finalizar.');
  }catch(e){release();busy=false;start.disabled=false;stop.disabled=true;mode.disabled=false;say(e?.name==='NotAllowedError'?'Permissão negada. Autorize a câmera e o microfone nas configurações do site.':e?.name==='NotFoundError'?'Não encontrei câmera ou microfone no dispositivo.':'Não foi possível iniciar: '+(e.message||'erro desconhecido'))}
 });
-forward.addEventListener('click',()=>{if(!lastRecording){say('Grave uma reunião antes de transcrever.');return}if(lastRecording.size>80*1024*1024){say('Arquivo acima de 80 MB. Divida ou reduza o vídeo.');return}window.dispatchEvent(new CustomEvent('rastro-meeting-ready',{detail:{file:lastRecording,mode:mode.value}}));say('Gravação enviada à seção de transcrição. A API fará a transcrição conforme o acesso disponível.');});
+forward.addEventListener('click',()=>{if(!lastRecording){say('Grave uma reunião antes de transcrever.');return}if(lastRecording.size>80*1024*1024){say('Arquivo acima de 80 MB. Divida ou reduza o vídeo.');return}window.dispatchEvent(new CustomEvent('rastro-meeting-ready',{detail:{file:lastRecording,mode:mode.value}}));say('Gravação encaminhada para a transcrição. Consulte o estado na área de material.');});
 stop.addEventListener('click',()=>{if(recorder?.state==='recording'){stop.disabled=true;say('Finalizando e preparando o arquivo...');recorder.stop()}});
 window.addEventListener('beforeunload',e=>{if(recorder?.state==='recording'){e.preventDefault();e.returnValue=''}});
 })();
