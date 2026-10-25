@@ -261,6 +261,18 @@ app.post('/api/admin/issue-pass',async(req,res)=>{
   res.json({code,expiresAt:until.toISOString(),message:'Passe criado depois de verificação manual. Envie o código ao comprador por canal privado.'});
  }catch(e){fail(res,e)}
 });
+app.post('/api/admin/issue-academic-voucher',async(req,res)=>{
+ if(!adminOK(req.get('X-RASTRO-ADMIN')))return res.status(403).json({error:'Acesso administrativo negado.'});
+ if(!db)return res.status(503).json({error:'Banco PostgreSQL indisponível.'});
+ const label=String(req.body?.reference||'Cortesia acadêmica externa').trim().slice(0,85);
+ try{
+  await passDatabase();
+  const code='ra2h_'+randomBytes(24).toString('base64url');
+  const until=new Date(Date.now()+2*3600000);
+  await db.query('INSERT INTO rastro_passes(token_hash,expires_at,reference) VALUES($1,$2,$3)',[sig(code),until,'VOUCHER ACADÊMICO 2H: '+label]);
+  res.status(201).json({code,expiresAt:until.toISOString(),validForMinutes:120,kind:'cortesia-academica',note:'Voucher registrado. Envie o código somente ao destinatário.'});
+ }catch(e){fail(res,e)}
+});
 app.get('/api/access/status',async(req,res)=>{
  const token=req.get('X-RASTRO-TOKEN')||'';
  if(adminOK(token))return res.json({active:true,mode:'admin'});
