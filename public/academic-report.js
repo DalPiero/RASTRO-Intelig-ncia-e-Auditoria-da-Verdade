@@ -7,6 +7,25 @@
  const ratio=(a,b)=>b?((100*a/b).toFixed(2)).replace('.',',')+'%':'0,00%';
  const labels={bar:'Palavras sinalizadas × demais',donut:'Proporção de palavras sinalizadas',columns:'Trechos sinalizados × demais',reasons:'Frequência de critérios de sinalização'};
  const read=()=>window.rastroStyleResult;
+
+ const documentaryTopics=['Mentira comprovada (exige prova de intenção)','Falsidade factual','Afirmação enganosa','Meia-verdade','Fora de contexto','Omissão relevante','Número impreciso','Generalização indevida','Falácia lógica','Falsa causalidade','Falsa equivalência','Contradição verificável','Sem evidências','Não verificável','Previsão como certeza','Enquadramento tendencioso','Apelo emocional','Seleção de dados','Atribuição indevida','Verdadeiro e contextualizado'];
+ function evidenceFor(data){const audit=window.rastroLastDocumentaryAudit;if(!audit||!audit.inputText)return null;const a=audit.inputText.trim(),b=(data.text||'').trim();if(!a||!b)return null;return a===b||b.includes(a)&&a.length>=300?{...audit,partial:a!==b}:null}
+ function documentaryRows(data){
+  const audit=evidenceFor(data),out=['AUDITORIA DOCUMENTAL — 20 PARÂMETROS CONSOLIDADOS'];
+  out.push('Abrangência: '+(audit?(audit.partial?'parcial — somente trecho submetido, não o documento integral':'texto examinado'):'sem pesquisa factual vinculada a este texto'));
+  out.push('As categorias abaixo não são resultados automáticos nem percentuais de acerto. Exigem pesquisa com fontes.');
+  documentaryTopics.forEach((v,i)=>out.push(String(i+1).padStart(2,'0')+' | '+v+' | '+(audit?.selected?.includes(i)?'SELECIONADA NA AUDITORIA — veja laudo e fontes; veredito não estruturado':'NÃO AVALIADO / NÃO SELECIONADO')));
+  if(audit){
+   out.push('LAUDO DOCUMENTAL VINCULADO — ID '+(audit.auditId||'não informado'));
+   out.push(audit.report||'Nenhum laudo textual retornado.');
+   out.push('FONTES INFORMADAS PELA PESQUISA — links para verificação independente');
+   if(!audit.citations?.length)out.push('Nenhuma URL de fonte associada à pesquisa.');
+   else for(const item of audit.citations)out.push((item.title||'Fonte')+' — '+item.url);
+  }else out.push('SEM PESQUISA FACTUAL VINCULADA: execute “Pesquisar evidências” com este texto ou trecho para incluir laudo e links. Nenhuma afirmação foi classificada como fundamentada, falsa ou comprovada apenas por estilo.');
+  out.push('CRITÉRIO ACADÊMICO: afirmativa fundamentada demanda fonte identificável, relação direta com a alegação, evidência rastreável, contexto e avaliação humana; ausência de evidência não equivale a falsidade.');
+  return out;
+ }
+
  const caveat='AVISO: índice heurístico descritivo, não é probabilidade, diagnóstico ou prova de autoria por IA. Pode haver falsos positivos, especialmente em citações e referências. Não usar isoladamente para acusações ou sanções. Respeitar as políticas da instituição, o direito de contestação e a revisão humana.';
  function keywords(d){const stop=new Set('sobre entre muito ainda desta desse assim para isso onde quando como qual quais pelos pelas uma umas uns dos das seus suas está esta mais menos muito todos todas também texto artigo capítulo estudo pesquisa documento análise resultados relações sistemas dados pelas pelos with from that this these those their have been into about using while which where when they them than were some more each only other such between under over then both based during without among also same time journal international management proceedings'.split(' '));const freq=new Map();for(const w of (d.text||'').toLocaleLowerCase('pt-BR').match(/[a-záàâãéêíóôõúüç]{5,}/gu)||[]){if(!stop.has(w))freq.set(w,(freq.get(w)||0)+1)}return [...freq].sort((a,b)=>b[1]-a[1]).slice(0,5).map(x=>x[0])}
  function coverCanvas(d){const c=document.createElement('canvas');c.width=1240;c.height=1754;const x=c.getContext('2d');const k=keywords(d);x.fillStyle='#102841';x.fillRect(0,0,1240,1754);x.fillStyle='#d8ad58';x.fillRect(0,0,1240,24);x.fillStyle='#a9d8dd';x.font='bold 30px Arial';x.fillText('RASTRO  /  AVALIAÇÃO ACADÊMICA',85,145);x.fillStyle='#fff';x.font='bold 74px Arial';x.fillText('RELATÓRIO DE',85,410);x.fillText('PADRÕES DE',85,510);x.fillText('ESCRITA',85,610);x.fillStyle='#f6d389';x.font='bold 38px Arial';x.fillText('INDÍCIOS ESTILÍSTICOS',85,745);x.font='bold 105px Arial';x.fillText(ratio(d.covered,d.total),85,865);x.fillStyle='#d5e6f2';x.font='26px Arial';x.fillText('Cobertura de trechos sinalizados — NÃO é autoria por IA',85,920);x.fillStyle='#f6d389';x.font='26px Arial';x.fillText('TEMAS EXTRAÍDOS DO DOCUMENTO',85,1070);x.fillStyle='#fff';x.font='32px Arial';let yy=1130;for(const key of k.length?k:['documento','pesquisa','análise']){x.fillText('• '+key,95,yy);yy+=62}x.fillStyle='#cbd8e8';x.font='24px Arial';x.fillText('Emissão '+new Date(d.date).toLocaleString('pt-BR'),85,1570);x.fillText('Instrumento de revisão. Sujeito a orientação acadêmica.',85,1615);return c}
@@ -103,7 +122,7 @@
    h('PARECER DO ORIENTADOR'),
    p('Nome: ____________________ Programa: ____________________'),
    p('Comentários e encaminhamento: ____________________________________________'));
-  lead.push(h('LIMITAÇÕES E REPRODUTIBILIDADE'),
+  lead.push(h('COMPLEMENTO — AUDITORIA DOCUMENTAL DOS 20 PARÂMETROS'),...documentaryRows(data).map(v=>p(v)),h('LIMITAÇÕES E REPRODUTIBILIDADE'),
    p('Regras aplicadas: pelo menos dois conectivos recorrentes, duas expressões formulaicas, combinação de ambas, ou repetição de abertura em três ou mais trechos. Aplicam-se somente a passagens com oito palavras ou mais.'),
    p('A segmentação pode variar em citações, abreviações, outros idiomas e pontuação irregular. Alguns sinais podem ocorrer naturalmente em escrita humana, e textos gerados por IA podem não apresentar qualquer sinal.'),
    p('Não foi validado um classificador estatístico por corpus rotulado, nem foram calculados intervalos de confiança, precisão, revocação ou valor preditivo. Não use o relatório isoladamente para concluir autoria, fraude ou plágio.'),
@@ -163,6 +182,8 @@
   lines('Orientador(a): ____________________   Programa: ____________________',22);
   lines('Comentários / encaminhamento: ______________________________________',22);
   lines('_______________________________________________________________',22);
+  lines('COMPLEMENTO — AUDITORIA DOCUMENTAL DOS 20 PARÂMETROS',27,true);
+  for(const row of documentaryRows(data))lines(row,20);
   lines('METODOLOGIA E LIMITAÇÕES',27,true);
   lines('Regras: dois ou mais conectivos repetidos; duas ou mais expressões formulaicas; presença conjunta; ou abertura semelhante em três trechos. Somente passagens de oito ou mais palavras podem ser sinalizadas.',22);
   lines('Segmentação por pontuação e parágrafos. Sem corpus de validação, sem taxa de acerto, intervalo de confiança ou conclusão sobre autoria. Não utilizar isoladamente para punições ou acusações.',22);
