@@ -42,6 +42,18 @@
   const caveat=document.createElement('p');caveat.textContent='Conclusão: sinais textuais não identificam autor, ferramenta ou intenção. Para avaliação editorial, contraste com versões anteriores, fontes e contexto.';output.append(caveat);summary+='\n'+caveat.textContent;
   status.textContent='Análise exploratória concluída localmente. Nenhuma informação foi enviada para detecção por servidor.';
  });
+
+ $('aiStyleAudit20')?.addEventListener('click',()=>{
+  const t=textInput.value.trim();
+  if(!t)return void(status.textContent='Cole um texto antes da auditoria.');
+  if(t.length>45000)return void(status.textContent='Limite de 45.000 caracteres por chamada. Selecione um trecho.');
+  const p=$('plain');if(!p)return void(status.textContent='Área de auditoria indisponível.');
+  p.value=t;
+  document.querySelector('[data-mode="text"]')?.click();
+  $('all')?.click();
+  $('audit')?.scrollIntoView({behavior:'smooth'});
+  status.textContent='Texto transferido; clique em Pesquisar evidências para executar a pesquisa com os 20 parâmetros.';
+ });
  $('aiStyleCopy').addEventListener('click',async()=>{if(!summary){status.textContent='Analise um texto antes de copiar.';return}try{await navigator.clipboard.writeText(summary);status.textContent='Resultado copiado.'}catch{status.textContent='Não foi possível copiar automaticamente. Selecione o resultado na tela.'}});
  window.rastroStyleLoadDocument=text=>{textInput.value=String(text||'').slice(0,300000);status.textContent='Documento acadêmico transferido para o exame de estilo ('+wordCount(textInput.value).toLocaleString('pt-BR')+' palavras, limitado a 300.000 caracteres).';textInput.scrollIntoView({behavior:'smooth',block:'center'})};
  $('aiStyleImportAcademic').addEventListener('click',()=>{if(typeof window.rastroAcademicText!=='function'){status.textContent='Leitor acadêmico indisponível. Atualize a página.';return}const text=window.rastroAcademicText();if(!text){status.textContent='Carregue primeiro um documento no RASTRO Acadêmico.';return}window.rastroStyleLoadDocument(text)});
