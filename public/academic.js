@@ -3,6 +3,7 @@
 const $=id=>document.getElementById(id);
 const status=msg=>{$('academicStatus').textContent=msg};
 let documentText='',name='',hits=[];
+window.rastroAcademicText=()=>documentText;
 const words=s=>(s.match(/\S+/gu)||[]).length;
 const MAX=150000;
 async function extract(file){
