@@ -28,6 +28,22 @@ async function request(route,opts={}){if(route!=='/api/health'){const isFree=ses
 function busy(button,active,label){button.disabled=active;button.textContent=active?'⏳ Processando...':label}
 $('transcribe').onclick=async()=>{const f=currentMedia||$('audio').files[0]||$('video').files[0];if(!f){notify('Escolha Áudio ou Filme e selecione um arquivo de mídia.');return}const button=$('transcribe');busy(button,true,'✦ Transcrever mídia');notify('Enviando e transcrevendo a mídia selecionada. O serviço pode levar mais tempo em vídeos longos.');try{const fd=new FormData();fd.append('media',f);const data=await request('/api/transcribe',{method:'POST',body:fd});$('transcript').value=data.text;notify('Transcrição concluída: '+data.segments.length+' segmentos. '+data.note)}catch(e){notify('Erro na transcrição: '+e.message)}finally{busy(button,false,'✦ Transcrever mídia')}};
 
+window.addEventListener('rastro-meeting-ready',async e=>{
+ const file=e.detail?.file;
+ if(!(file instanceof File))return;
+ currentMedia=file;
+ const kind=e.detail.mode==='audio'?'audio':'video';
+ document.querySelector('[data-mode="'+kind+'"]')?.click();
+ const player=$(kind+'Preview');
+ if(mediaURL)URL.revokeObjectURL(mediaURL);
+ mediaURL=URL.createObjectURL(file);player.src=mediaURL;player.hidden=false;
+ notify('Gravação da reunião carregada: '+file.name+'. Iniciando a transcrição com autorização de acesso...');
+ await $('transcribe').onclick();
+ if($('transcript').value.trim()){
+  $('transcript').scrollIntoView({behavior:'smooth',block:'center'});
+  notify('Transcrição disponível. Revise os falantes e clique em “Pesquisar evidências” para analisar declarações. A identificação de falantes é aproximada.');
+ }
+});
 function sourceInfo(){
  const type={url:'URL',video:'FILME / VÍDEO',audio:'ÁUDIO',text:'TEXTO'}[mode]||'MATERIAL';
  const url=$('url')?.value.trim()||'';
