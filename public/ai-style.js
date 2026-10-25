@@ -27,9 +27,10 @@
   return {total:wordCount(text),covered:countedWords,flagged,passages:passages.length};
  }
  $('aiStyleRun').addEventListener('click',()=>{
-  const text=textInput.value.trim();output.replaceChildren();summary='';
+  const text=textInput.value.trim();output.replaceChildren();summary='';window.rastroStyleResult=null;
   if(text.length<100){status.textContent='Envie pelo menos 100 caracteres para examinar padrões de estilo.';return}
   const data=analyze(text),percent=data.total?100*data.covered/data.total:0;
+  window.rastroStyleResult={...data,characters:text.length,date:new Date().toISOString(),text};window.dispatchEvent(new Event('rastro-style-analyzed'));
   const title=document.createElement('h3');title.textContent='Trechos sinalizados: '+percent.toFixed(1).replace('.',',')+'% das palavras examinadas';output.append(title);
   const info=document.createElement('p');info.textContent='Palavras sinalizadas: '+data.covered.toLocaleString('pt-BR')+' de '+data.total.toLocaleString('pt-BR')+' • Trechos com sinais: '+data.flagged.length+' de '+data.passages+'. Este é um índice de cobertura de padrões, NÃO a probabilidade de uso de IA.';output.append(info);
   summary=title.textContent+'\n'+info.textContent+'\n';
