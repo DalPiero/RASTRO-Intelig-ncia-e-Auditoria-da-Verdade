@@ -76,9 +76,22 @@
    const png=canvases[i].toDataURL('image/png').split(',')[1],bytes=Uint8Array.from(atob(png),c=>c.charCodeAt(0));
    lead.push(new Paragraph({children:[new ImageRun({data:bytes,transformation:{width:520,height:238},type:'png'})],spacing:{after:190}}));
   }
+  lead.push(h('O QUE SIGNIFICA “SINALIZADAS”?'),
+   p('Uma passagem sinalizada contém padrões recorrentes de conectivos, expressões formulaicas ou aberturas semelhantes, segundo regras heurísticas. Não significa prova de autoria por inteligência artificial.'),
+   p('O percentual é a proporção de palavras contidas em passagens marcadas e não uma probabilidade de autoria artificial.'));
   lead.push(h('TRECHOS SINALIZADOS E JUSTIFICATIVAS'));
   for(const item of data.flagged.slice(0,80)){lead.push(p('Trecho '+item.number+' — '+item.words+' palavras; critérios: '+item.reasons.join('; '),true),p('“'+item.text.slice(0,2200)+(item.text.length>2200?' […]':'')+'”'))}
   if(data.flagged.length>80)lead.push(p('Foram apresentados os primeiros 80 dos '+data.flagged.length+' trechos sinalizados.'));
+  lead.push(h('ORIENTAÇÃO ACADÊMICA E REVISÃO DE TESES'),
+   p('Destinatários: pesquisadores, estudantes de pós-graduação, orientadores e bancas examinadoras. O relatório é diagnóstico exploratório, não parecer de autoria.'),
+   p('Ações sugeridas: avaliar a pertinência dos conectivos; substituir passagens genéricas por formulações específicas; sustentar argumentos em referências e dados primários; explicitar método, delimitação, contribuição inédita e limitações.'),
+   p('Não reformule passagens técnicas corretas somente para reduzir o indicador; a clareza disciplinar prevalece sobre o índice heurístico.'),
+   h('CONCLUSÃO ORIENTATIVA'),
+   p('Foram sinalizados '+data.flagged.length+' de '+data.passages+' trechos, correspondentes a '+data.covered+' das '+data.total+' palavras ('+ratio(data.covered,data.total)+'). Trata-se de recorrências textuais, não de estimativa de autoria por IA.'),
+   p('Encaminhamento: realizar revisão qualitativa dos trechos destacados, confirmar as fontes e apresentar a versão revisada ao orientador. Não se recomenda atribuir autoria nem sanção com fundamento neste relatório.'),
+   h('PARECER DO ORIENTADOR'),
+   p('Nome: ____________________ Programa: ____________________'),
+   p('Comentários e encaminhamento: ____________________________________________'));
   lead.push(h('LIMITAÇÕES E REPRODUTIBILIDADE'),
    p('Regras aplicadas: pelo menos dois conectivos recorrentes, duas expressões formulaicas, combinação de ambas, ou repetição de abertura em três ou mais trechos. Aplicam-se somente a passagens com oito palavras ou mais.'),
    p('A segmentação pode variar em citações, abreviações, outros idiomas e pontuação irregular. Alguns sinais podem ocorrer naturalmente em escrita humana, e textos gerados por IA podem não apresentar qualquer sinal.'),
@@ -152,7 +165,7 @@
   const d=read();if(!d)throw Error('Execute primeiro a análise de estilo.');
   update();const pages=producePages(d);
   // Cada PNG é a reprodução pixel a pixel de sua página correspondente no PDF.
-  if(pages.length>1 && !confirm('O relatório tem '+pages.length+' páginas. Serão baixadas '+pages.length+' imagens PNG (uma por página). Autorize vários downloads neste site. Continuar?'))return;
+  message.textContent='Preparando '+pages.length+' imagem(ns) PNG correspondentes às páginas completas do PDF...';
   for(let i=0;i<pages.length;i++){
    const blob=await new Promise((resolve,reject)=>pages[i].toBlob(b=>b?resolve(b):reject(Error('Falha ao gerar PNG')),'image/png'));
    saveBlob(blob,'RASTRO_Academico_'+new Date().toISOString().slice(0,10)+'_pagina_'+String(i+1).padStart(3,'0')+'_de_'+String(pages.length).padStart(3,'0')+'.png');
