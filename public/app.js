@@ -37,6 +37,7 @@ window.addEventListener('rastro-meeting-ready',async e=>{
  const player=$(kind+'Preview');
  if(mediaURL)URL.revokeObjectURL(mediaURL);
  mediaURL=URL.createObjectURL(file);player.src=mediaURL;player.hidden=false;
+ $('transcript').value='';
  notify('Gravação da reunião carregada: '+file.name+'. Iniciando a transcrição com autorização de acesso...');
  await $('transcribe').onclick();
  if($('transcript').value.trim()){
