@@ -7,6 +7,11 @@
  const ratio=(a,b)=>b?((100*a/b).toFixed(2)).replace('.',',')+'%':'0,00%';
  const labels={bar:'Palavras sinalizadas × demais',donut:'Proporção de palavras sinalizadas',columns:'Trechos sinalizados × demais',reasons:'Frequência de critérios de sinalização'};
  const read=()=>window.rastroStyleResult;
+ const caveat='AVISO: índice heurístico descritivo, não é probabilidade, diagnóstico ou prova de autoria por IA. Pode haver falsos positivos, especialmente em citações e referências. Não usar isoladamente para acusações ou sanções. Respeitar as políticas da instituição, o direito de contestação e a revisão humana.';
+ function keywords(d){const stop=new Set('sobre entre muito ainda desta desse assim para isso onde quando como qual quais pelos pelas uma umas uns dos das seus suas está esta mais menos muito todos todas também texto artigo capítulo estudo pesquisa documento análise resultados relações sistemas dados pelas pelos with from that this these those their have been into about using while which where when they them than were some more each only other such between under over then both based during without among also same time journal international management proceedings'.split(' '));const freq=new Map();for(const w of (d.text||'').toLocaleLowerCase('pt-BR').match(/[a-záàâãéêíóôõúüç]{5,}/gu)||[]){if(!stop.has(w))freq.set(w,(freq.get(w)||0)+1)}return [...freq].sort((a,b)=>b[1]-a[1]).slice(0,5).map(x=>x[0])}
+ function coverCanvas(d){const c=document.createElement('canvas');c.width=1240;c.height=1754;const x=c.getContext('2d');const k=keywords(d);x.fillStyle='#102841';x.fillRect(0,0,1240,1754);x.fillStyle='#d8ad58';x.fillRect(0,0,1240,24);x.fillStyle='#a9d8dd';x.font='bold 30px Arial';x.fillText('RASTRO  /  AVALIAÇÃO ACADÊMICA',85,145);x.fillStyle='#fff';x.font='bold 74px Arial';x.fillText('RELATÓRIO DE',85,410);x.fillText('PADRÕES DE',85,510);x.fillText('ESCRITA',85,610);x.fillStyle='#f6d389';x.font='bold 38px Arial';x.fillText('INDÍCIOS ESTILÍSTICOS',85,745);x.font='bold 105px Arial';x.fillText(ratio(d.covered,d.total),85,865);x.fillStyle='#d5e6f2';x.font='26px Arial';x.fillText('Cobertura de trechos sinalizados — NÃO é autoria por IA',85,920);x.fillStyle='#f6d389';x.font='26px Arial';x.fillText('TEMAS EXTRAÍDOS DO DOCUMENTO',85,1070);x.fillStyle='#fff';x.font='32px Arial';let yy=1130;for(const key of k.length?k:['documento','pesquisa','análise']){x.fillText('• '+key,95,yy);yy+=62}x.fillStyle='#cbd8e8';x.font='24px Arial';x.fillText('Emissão '+new Date(d.date).toLocaleString('pt-BR'),85,1570);x.fillText('Instrumento de revisão. Sujeito a orientação acadêmica.',85,1615);return c}
+ function indicatorCanvas(d){const c=document.createElement('canvas');c.width=1000;c.height=170;const x=c.getContext('2d');x.fillStyle='#f3f7fd';x.fillRect(0,0,1000,170);x.fillStyle='#b77216';x.fillRect(0,0,16,170);x.fillStyle='#18304b';x.font='bold 27px Arial';x.fillText('INDÍCIOS ESTILÍSTICOS COMPATÍVEIS COM ESCRITA ASSISTIDA POR IA',33,40);x.fillStyle='#9a5a0e';x.font='bold 51px Arial';x.fillText(ratio(d.covered,d.total),34,107);x.fillStyle='#394f66';x.font='20px Arial';x.fillText('Palavras em trechos sinalizados / total; NÃO indica probabilidade de IA',220,104);x.fillStyle='#c49a42';x.fillRect(34,134,Math.max(0,930*(d.total?d.covered/d.total:0)),13);x.strokeStyle='#abc4db';x.strokeRect(34,134,930,13);return c}
+
  const counts=data=>{const m=new Map();for(const item of data.flagged)for(const reason of item.reasons)m.set(reason,(m.get(reason)||0)+1);return [...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,6)};
  function renderChart(type,data){
   const c=document.createElement('canvas');c.width=960;c.height=440;c.style.cssText='width:100%;max-width:760px;background:#ffffff;border-radius:10px;margin:12px 0';
@@ -51,7 +56,13 @@
   const p=(s,bold=false)=>new Paragraph({children:[new TextRun({text:String(s),size:22,bold})],spacing:{after:135}});
   const h=s=>new Paragraph({text:s,heading:HeadingLevel.HEADING_2,spacing:{before:220,after:150}});
   const percent=ratio(data.covered,data.total);
+  const coverBytes=Uint8Array.from(atob(coverCanvas(data).toDataURL('image/png').split(',')[1]),c=>c.charCodeAt(0));
+  const indicatorBytes=Uint8Array.from(atob(indicatorCanvas(data).toDataURL('image/png').split(',')[1]),c=>c.charCodeAt(0));
   const lead=[
+   new Paragraph({children:[new ImageRun({data:coverBytes,transformation:{width:500,height:707},type:'png'})],pageBreakBefore:false}),
+   new Paragraph({text:'RELATÓRIO TÉCNICO',pageBreakBefore:true,heading:HeadingLevel.TITLE}),
+   new Paragraph({children:[new ImageRun({data:indicatorBytes,transformation:{width:500,height:85},type:'png'})]}),
+   p(caveat),
    new Paragraph({text:'RASTRO ACADÊMICO — RELATÓRIO DE PADRÕES DE ESCRITA',heading:HeadingLevel.TITLE}),
    p('Data: '+new Date(data.date).toLocaleString('pt-BR')),p('Método: inspeção heurística de conectivos, estruturas formulaicas e aberturas recorrentes.'),
    h('ESTATÍSTICAS ACADÊMICAS — RESUMO EXECUTIVO'),
@@ -106,6 +117,8 @@
  function reportName(ext){return 'RASTRO_Academico_'+new Date().toISOString().slice(0,10)+'.'+ext}
  function summaryLines(data){return [
   'RASTRO ACADÊMICO — RELATÓRIO DE PADRÕES DE ESCRITA',
+  'INDÍCIOS ESTILÍSTICOS: '+ratio(data.covered,data.total)+' — NÃO É PERCENTUAL DE AUTORIA POR IA',
+  caveat,
   'Emissão: '+new Date(data.date).toLocaleString('pt-BR'),
   'Palavras analisadas: '+f(data.total)+' | Caracteres: '+f(data.characters),
   'Trechos: '+f(data.passages)+' | Com sinais: '+f(data.flagged.length)+' ('+ratio(data.flagged.length,data.passages)+')',
@@ -118,11 +131,12 @@
  function wrapped(x,text,maxWidth,fontSize=24){x.font=fontSize+'px Arial';const lines=[];for(const para of String(text).split(/\n/)){let line='';for(const word of para.split(/\s+/)){const t=line?line+' '+word:word;if(x.measureText(t).width>maxWidth&&line){lines.push(line);line=word}else line=t}lines.push(line)}return lines}
  function drawHeader(x,page){x.fillStyle='#142d49';x.fillRect(0,0,1240,82);x.fillStyle='#ffffff';x.font='bold 28px Arial';x.fillText('RASTRO  •  AVALIAÇÃO ACADÊMICA',65,52);x.fillStyle='#415267';x.font='21px Arial';x.fillText('Página '+page+'  |  Relatório descritivo, sujeito a revisão humana',65,1708)}
  function producePages(data){
-  const pages=[];let {c,x}=pageCanvas(),y=115;
+  const pages=[coverCanvas(data)];let {c,x}=pageCanvas(),y=115;
   function newPage(){pages.push(c);({c,x}=pageCanvas());drawHeader(x,pages.length+1);y=124}
   drawHeader(x,1);
   function lines(text,sz=24,bold=false,gap=9){x.font=(bold?'bold ':'')+sz+'px Arial';const ls=wrapped(x,text,1090,sz);for(const ln of ls){if(y+sz+gap>1630)newPage();x.fillStyle='#172e48';x.font=(bold?'bold ':'')+sz+'px Arial';x.fillText(ln,70,y);y+=sz+gap}y+=10}
-  for(const [i,line] of summaryLines(data).entries())lines(line,i===0?30:23,i===0||i===5);
+  x.drawImage(indicatorCanvas(data),60,95,1120,190);y=315;
+  for(const [i,line] of summaryLines(data).entries())lines(line,i===0?30:22,i===0||i===1);
   for(const cv of current.length?current:[renderChart(choice.value,data)]){
    if(y+615>1630)newPage();
    lines('Figura — '+(cv.parentElement?.previousElementSibling?.textContent||'Distribuição de padrões'),24,true);
@@ -158,7 +172,7 @@
  async function savePdf(){
   const d=read();if(!d)throw Error('Execute primeiro a análise de estilo.');const J=window.jspdf?.jsPDF;if(!J)throw Error('Biblioteca jsPDF indisponível. Atualize a página.');
   update();const pages=producePages(d),pdf=new J({orientation:'portrait',unit:'mm',format:'a4',compress:true});
-  pages.forEach((page,i)=>{if(i)pdf.addPage();pdf.addImage(page.toDataURL('image/jpeg',0.82),'JPEG',0,0,210,297)});
+  pages.forEach((page,i)=>{if(i)pdf.addPage();pdf.addImage(page.toDataURL('image/png'),'PNG',0,0,210,297)});
   pdf.save(reportName('pdf'));
  }
  async function savePng(){
