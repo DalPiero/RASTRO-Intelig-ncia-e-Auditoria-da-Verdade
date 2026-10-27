@@ -255,15 +255,15 @@ app.get('/api/admin/vouchers/all',async(req,res)=>{
  try{
   await Promise.all([vouchersSchema(),voucher2Schema()]);
   const [general,individual]=await Promise.all([
-   db.query('SELECT id,applicant_name,email,category,organization,purpose,status,created_at FROM rastro_voucher_requests ORDER BY created_at DESC LIMIT 500'),
-   db.query('SELECT id,applicant_name,email,purpose,status,created_at,approved_at,expires_at FROM rastro_two_hour_vouchers ORDER BY created_at DESC LIMIT 500')
+   db.query('SELECT id,applicant_name,email,category,organization,purpose,status,created_at FROM rastro_voucher_requests ORDER BY created_at DESC'),
+   db.query('SELECT id,applicant_name,email,purpose,status,created_at,approved_at,expires_at FROM rastro_two_hour_vouchers ORDER BY created_at DESC')
   ]);
   const groups={individual2h:individual.rows,academico:[],institucional:[],jornalista:[],autoridade:[],cientista:[]};
   for(const row of general.rows){
    const key=row.organization?.trim()?'institucional':(Object.hasOwn(groups,row.category)?row.category:'academico');
    groups[key].push(row);
   }
-  res.json({groups,count:Object.fromEntries(Object.entries(groups).map(([k,rows])=>[k,rows.length])),maxPerSource:500,note:'Exibição limitada às últimas 500 solicitações de cada formulário. Institucional é identificado pelo vínculo informado.'});
+  res.json({groups,count:Object.fromEntries(Object.entries(groups).map(([k,rows])=>[k,rows.length])),note:'Exibição integral dos pedidos registrados nos dois formulários. Institucional é identificado pelo vínculo informado.'});
  }catch(e){fail(res,e)}
 });
 app.get('/api/admin/vouchers',async(req,res)=>{
